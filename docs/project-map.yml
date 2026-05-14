@@ -15,6 +15,7 @@ governance:
 canonical_docs:
   readme: README.md
   runtime_taxonomy: docs/linux-runtime-info-categories.md
+  runtime_subcategories: docs/linux-runtime-info-subcategories.md
   decisions_index: docs/decisions/README.md
 
 templates:
@@ -45,5 +46,6 @@ stable_terms:
   - 稳定入口
   - 设计约束
   - 采集项
+  - 二级分类
   - 变更管理
   - 人与 AI 共治

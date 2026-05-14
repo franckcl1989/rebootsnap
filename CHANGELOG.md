@@ -4,6 +4,34 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-14 - 建立 Linux OS 运行时信息二级分类
+
+- **类型**：设计 / 文档 / 测试
+- **范围**：`docs/linux-runtime-info-subcategories.md`、`docs/linux-runtime-info-categories.md`、`README.md`、`docs/index.md`、`docs/project-map.yml`、`docs/glossary.md`、`scripts/verify.sh`、`CHANGELOG.md`
+- **提交信息**：`design(runtime-taxonomy): add runtime subcategory baseline`
+
+### 变更内容
+
+- 新增 `docs/linux-runtime-info-subcategories.md`，在 `RT-01` 到 `RT-21` 大类下建立 `RT-xx-yy` 二级分类。
+- 为每个二级分类定义一句稳定判定标准，避免提前绑定采集命令、文件路径、字段结构或报告形态。
+- 在二级分类文档中补充官方资料审核依据，覆盖 Linux kernel documentation、Linux man-pages 和 systemd 官方文档。
+- 收紧 tmpfs 共享内存目录项、IPC 对象、udev database、udev 事件队列、BPF 对象、生效位置、workqueue 和网络路径派生缓存的相邻边界。
+- 更新 `docs/linux-runtime-info-categories.md`，让大类文档指向二级分类文档。
+- 更新 `README.md`、`docs/index.md`、`docs/project-map.yml` 和 `docs/glossary.md`，将二级分类接入稳定文档入口和术语表。
+- 更新 `scripts/verify.sh`，将二级分类文档纳入必需文件和项目地图一致性校验。
+
+### 设计影响
+
+- 后续采集项、数据模型和报告视图应优先挂靠到 `RT-xx-yy` 二级分类，不应直接绕过现有大类和二级分类创建新的上层对象模型。
+- `RT-xx-yy` 一旦被后续设计或实现引用，即成为稳定 ID；删除、重命名或重编号前必须由人类维护者确认。
+- 二级分类仍然是 OS 运行时信息类别，不等同于采集项；采集命令、字段结构和优先级应留到后续采集设计文档定义。
+- 共享内存、udev、BPF、timer/workqueue、网络路径缓存等跨系统面对象必须按主对象归属分类，并通过交叉引用表达上下文。
+
+### 验证
+
+- 运行 `scripts/verify.sh` 校验新增文档入口、项目地图、Markdown 链接、脚本权限和变更管理结构。
+- 人工对照 Linux kernel documentation、Linux man-pages 和 systemd 官方文档，核对二级分类的对象边界和相邻归属。
+
 ## 2026-05-14 - 建立人与 AI 共治治理基础设施
 
 - **类型**：工程化 / 文档 / 设计

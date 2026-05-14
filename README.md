@@ -8,6 +8,7 @@ RebootSnap captures a pre-reboot snapshot of Linux runtime state, preserving key
 - [变更记录](CHANGELOG.md)
 - [变更管理规范](docs/change-management.md)
 - [Linux 服务器操作系统运行时信息大类定义](docs/linux-runtime-info-categories.md)
+- [Linux OS 运行时信息二级分类](docs/linux-runtime-info-subcategories.md)
 
 ## 本地初始化
 

@@ -31,6 +31,7 @@ check_required_files() {
     docs/glossary.md
     docs/change-management.md
     docs/linux-runtime-info-categories.md
+    docs/linux-runtime-info-subcategories.md
     docs/decisions/README.md
     docs/templates/changelog-entry.md
     docs/templates/decision-record.md
@@ -79,6 +80,7 @@ check_project_map() {
     docs/glossary.md
     docs/change-management.md
     docs/linux-runtime-info-categories.md
+    docs/linux-runtime-info-subcategories.md
     docs/decisions/README.md
     docs/templates/changelog-entry.md
     docs/templates/decision-record.md

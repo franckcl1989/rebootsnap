@@ -24,6 +24,7 @@
 | 文档 | 状态 | 用途 |
 | --- | --- | --- |
 | `docs/linux-runtime-info-categories.md` | 生效 | Linux OS 运行时信息大类定义 |
+| `docs/linux-runtime-info-subcategories.md` | 生效 | Linux OS 运行时信息二级分类 |
 | `docs/decisions/README.md` | 生效 | 设计决策记录目录 |
 
 ## 模板
