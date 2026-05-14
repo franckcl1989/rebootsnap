@@ -1,0 +1,49 @@
+version: 1
+project:
+  name: rebootsnap
+  description: Capture Linux OS runtime state before reboot for post-restart troubleshooting.
+
+governance:
+  ai_entry: AGENTS.md
+  human_ai_rules: docs/project-governance.md
+  document_index: docs/index.md
+  machine_map: docs/project-map.yml
+  glossary: docs/glossary.md
+  change_management: docs/change-management.md
+  changelog: CHANGELOG.md
+
+canonical_docs:
+  readme: README.md
+  runtime_taxonomy: docs/linux-runtime-info-categories.md
+  decisions_index: docs/decisions/README.md
+
+templates:
+  changelog_entry: docs/templates/changelog-entry.md
+  decision_record: docs/templates/decision-record.md
+
+required_checks:
+  developer_setup: scripts/setup-dev.sh
+  full_verify: scripts/verify.sh
+  change_management: scripts/validate-change-management.sh
+  local_commit_hook: .githooks/commit-msg
+  ci_workflow: .github/workflows/change-management.yml
+
+stable_scopes:
+  - governance
+  - change-management
+  - docs-index
+  - runtime-taxonomy
+  - collector
+  - report
+
+stable_terms:
+  - RebootSnap
+  - Linux OS 运行时信息
+  - 重启失真
+  - 运行时现场
+  - 系统证据
+  - 稳定入口
+  - 设计约束
+  - 采集项
+  - 变更管理
+  - 人与 AI 共治

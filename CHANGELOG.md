@@ -2,73 +2,63 @@
 
 本文记录 RebootSnap 的重要设计、文档和实现变更。目标是让人类读者可以快速理解项目演进，也让 AI 工具可以稳定解析变更意图、范围和影响。
 
-## 记录原则
+提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
-- 按时间倒序记录，最新变更在前。
-- 每条变更必须说明事实、边界和影响，不写泛泛的进展描述。
-- 文档类变更要说明它建立或改变了哪些设计约束。
-- 记录中使用稳定文件路径和稳定概念名，避免依赖口语化描述。
-- 如果变更是基石性设计，应写清它如何指导后续文档或实现。
+## 2026-05-14 - 建立人与 AI 共治治理基础设施
 
-## 条目格式
-
-每条变更使用以下结构：
-
-```markdown
-## YYYY-MM-DD - 简短标题
-
-**类型**：文档 / 设计 / 实现 / 修复 / 重构 / 测试 / 工程化
-**范围**：受影响的文件、模块或设计域
-**提交信息**：`type(scope): summary`
+- **类型**：工程化 / 文档 / 设计
+- **范围**：`AGENTS.md`、`docs/project-governance.md`、`docs/index.md`、`docs/glossary.md`、`docs/project-map.yml`、`docs/change-management.md`、`CHANGELOG.md`、`README.md`、`docs/templates/changelog-entry.md`、`docs/templates/decision-record.md`、`docs/decisions/README.md`、`scripts/setup-dev.sh`、`scripts/verify.sh`、`scripts/validate-change-management.sh`、`.githooks/commit-msg`、`.github/workflows/change-management.yml`
+- **提交信息**：`chore(governance): establish human-ai governance controls`
 
 ### 变更内容
 
-- 具体发生了什么。
+- 新增 `docs/change-management.md`，作为提交信息和变更记录格式的唯一规范来源。
+- 新增 `AGENTS.md`，定义 AI 进入仓库后的必读顺序、工作规则、人类确认边界和输出要求。
+- 新增 `docs/project-governance.md`，定义人与 AI 共治目标、事实来源优先级、职责边界和质量门槛。
+- 新增 `docs/index.md`，作为文档地图和导航一致性规则。
+- 新增 `docs/glossary.md`，固定 RebootSnap、人机共治和运行时信息相关稳定术语。
+- 新增 `docs/project-map.yml`，提供机器可读的治理入口、规范入口、模板、校验命令和稳定术语。
+- 新增 `docs/templates/changelog-entry.md` 和 `docs/templates/decision-record.md`，固定常用治理模板。
+- 新增 `docs/decisions/README.md`，建立后续设计决策记录目录。
+- 新增 `scripts/setup-dev.sh`，让新 clone 的仓库可以一条命令启用本地 Git hook。
+- 将提交信息固定为 `type(scope): summary`，并定义固定 `type` 表、必填 `scope`、`summary` 长度和正文触发条件。
+- 将 `CHANGELOG.md` 条目固定为日期、类型、范围、提交信息、变更内容、设计影响和验证的结构。
+- 新增 `scripts/validate-change-management.sh`，用同一套脚本校验提交信息和变更记录。
+- 新增 `scripts/verify.sh`，统一校验治理入口、文档导航、项目地图、Markdown 链接、脚本权限和变更管理规则。
+- 新增 `.githooks/commit-msg`，在本地提交时拦截不合规提交。
+- 新增 `.github/workflows/change-management.yml`，在 push 和 pull request 中重复校验治理结构、提交信息和变更记录。
+- CI 对已有分支的 push 和 pull request 校验新增提交范围；对新分支首次 push 只校验当前 head，避免新规则追溯阻塞旧历史提交。
+- 本地提交校验读取暂存区中的 `CHANGELOG.md`，避免工作区内容和实际提交内容不一致时绕过检查。
+- 校验脚本和规范文档使用一致的提交首行正则，避免规则实现和文字规范分叉。
+- 更新 `README.md` 文档入口，并让 `CHANGELOG.md` 引用规范文档而不是内嵌规则。
 
 ### 设计影响
 
-- 它为后续工作建立、修改或废弃了什么约束。
+- 后续提交和变更记录必须使用固定类型、固定字段和固定小节，便于人类审阅和 AI 解析。
+- `docs/change-management.md` 成为变更管理规则的单一事实来源；`CHANGELOG.md` 只记录历史变更。
+- `AGENTS.md`、`docs/project-governance.md`、`docs/index.md`、`docs/project-map.yml` 和 `scripts/verify.sh` 共同构成人与 AI 共治的稳定入口。
+- 后续新增文档、稳定术语、模板或治理命令时，必须同步维护文档索引和机器可读项目地图。
+- 新 clone 的本地治理初始化统一通过 `scripts/setup-dev.sh` 执行，避免依赖手工记忆 `git config core.hooksPath .githooks`。
+- 本地 hook 和 CI 共同执行规范；若需要远端强制，应在代码托管平台启用分支保护并要求 `Change Management` workflow 通过。
 
 ### 验证
 
-- 已执行的检查、测试或人工审核结论。
-```
-
-## 提交信息格式
-
-提交信息采用轻量 Conventional Commits 风格：
-
-```text
-type(scope): summary
-```
-
-字段要求：
-
-- `type`：使用 `docs`、`design`、`feat`、`fix`、`refactor`、`test`、`chore` 等稳定类型。
-- `scope`：使用小写短横线命名，指向稳定设计域或模块，例如 `runtime-taxonomy`、`docs-index`。
-- `summary`：使用英文祈使句或名词化短句，长度控制在一行内，清晰说明本次提交的核心结果。
-
-提交正文在需要时使用以下结构：
-
-```text
-Context:
-- 为什么需要这个变更。
-
-Changes:
-- 变更了什么。
-
-Impact:
-- 对后续设计或实现有什么影响。
-
-Verification:
-- 做过哪些检查。
-```
+- 运行 `scripts/verify.sh` 校验治理入口、文档导航、项目地图、Markdown 链接、脚本权限和变更管理规则。
+- 运行 `scripts/setup-dev.sh` 确认本地 Git hook 可通过统一入口配置。
+- 运行 `scripts/validate-change-management.sh changelog 'chore(governance): establish human-ai governance controls'` 校验变更记录结构和提交信息匹配。
+- 运行 `scripts/validate-change-management.sh commit-msg /tmp/rebootsnap-commit-msg --no-staged-check` 校验示例提交信息。
+- 运行错误示例 `update things`，确认校验脚本会拒绝不符合 `type(scope): summary` 的提交信息。
+- 运行提交信息和变更记录不匹配的错误示例，确认校验脚本会拒绝语义脱节的提交。
+- 人工审核 `commit-msg` 模式确认本地提交校验读取暂存区 `CHANGELOG.md`。
+- 人工比对规范文档和校验脚本中的提交首行正则，确认两者一致。
+- 人工审核 CI 新分支首次 push 分支，确认不会因旧历史提交不符合新规范而阻塞当前治理落地。
+- 运行 `git diff --check` 校验文档和脚本没有 whitespace 错误。
 
 ## 2026-05-14 - 建立 Linux OS 运行时信息大类基线
 
-**类型**：文档 / 设计  
-**范围**：`docs/linux-runtime-info-categories.md`、`README.md`、`CHANGELOG.md`  
-**提交信息**：`docs(runtime-taxonomy): establish Linux OS runtime baseline`
+- **类型**：文档 / 设计
+- **范围**：`docs/linux-runtime-info-categories.md`、`README.md`、`CHANGELOG.md`
+- **提交信息**：`docs(runtime-taxonomy): establish Linux OS runtime baseline`
 
 ### 变更内容
 
@@ -79,7 +69,7 @@ Verification:
 - 为每个大类统一定义 `判定标准`、`包括`、`不包括`、`边界` 和 `重启失真`。
 - 增加相邻边界规则、覆盖性校验和边界判定示例，便于后续文档与 AI 工具稳定引用。
 - 更新 `README.md` 文档入口。
-- 新增本文，定义变更记录和提交信息格式。
+- 新增 `CHANGELOG.md`，初步记录变更信息和格式约束。
 
 ### 设计影响
 

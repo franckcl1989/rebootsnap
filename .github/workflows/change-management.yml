@@ -1,0 +1,34 @@
+name: Change Management
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate repository governance
+        shell: bash
+        run: scripts/verify.sh
+
+      - name: Validate commit and changelog rules
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            scripts/validate-change-management.sh range \
+              "${{ github.event.pull_request.base.sha }}" \
+              "${{ github.event.pull_request.head.sha }}"
+          elif [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
+            scripts/validate-change-management.sh head
+          else
+            scripts/validate-change-management.sh range \
+              "${{ github.event.before }}" \
+              "${{ github.sha }}"
+          fi
