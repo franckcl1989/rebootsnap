@@ -93,8 +93,8 @@ BREAKING CHANGE: describe the incompatible change and required migration.
 仓库使用同一套脚本同时约束人类提交和 AI 生成提交。
 
 - `scripts/validate-change-management.sh` 是可执行校验入口。
-- `scripts/verify.sh` 是提交前的统一验证入口。
-- `.githooks/commit-msg` 在本地提交时调用校验脚本。
+- `scripts/verify.sh` 是提交前的统一验证入口，校验治理入口、文档导航、项目地图、Markdown 链接、脚本权限、变更记录结构和 whitespace。
+- `.githooks/commit-msg` 在本地提交时先运行 `scripts/verify.sh`，再校验暂存区中的提交信息和变更记录匹配关系。
 - `.github/workflows/change-management.yml` 在 push 和 pull request 中重复校验，防止本地 hook 被跳过。
 
 本地仓库必须启用版本化 hook：
@@ -111,6 +111,13 @@ scripts/setup-dev.sh
 - 暂存区中的 `CHANGELOG.md` 顶部条目 `提交信息` 必须和本次提交首行完全一致。
 - 暂存区中的 `CHANGELOG.md` 顶部条目必须包含固定元数据字段和三个固定小节，且每个小节至少有一条 bullet。
 - 提交前必须运行 `scripts/verify.sh`，确认治理入口、文档链接、项目地图和变更管理规则一致。
+
+自动化覆盖范围：
+
+- `scripts/verify.sh` 校验工作区中的必需入口、导航一致性、项目地图、Markdown 链接、脚本权限、所有变更记录条目结构和 whitespace。
+- 本地 commit hook 额外校验暂存区中的 `CHANGELOG.md` 顶部条目必须匹配当前提交首行。
+- CI 在 push 和 pull request 中校验仓库结构，并校验新增提交的 subject 都能在 `CHANGELOG.md` 中找到。
+- 自动化不能证明设计判断、事实来源或人工审核结论真实充分；这些内容必须在 `CHANGELOG.md` 的 `设计影响` 和 `验证` 中写清依据。
 
 本地 hook 可以被 `git commit --no-verify` 绕过。因此远端仓库应启用分支保护，并要求 `Change Management` workflow 通过后才能合并到主分支。
 

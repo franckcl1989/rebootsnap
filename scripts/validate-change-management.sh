@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export LC_ALL=C
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 CHANGELOG="$ROOT/CHANGELOG.md"
@@ -96,6 +97,17 @@ top_changelog_subject() {
   '
 }
 
+changelog_subjects() {
+  changelog_content | awk '
+    /^- \*\*提交信息\*\*：`[^`]+`$/ {
+      line=$0
+      sub(/^- \*\*提交信息\*\*：`/, "", line)
+      sub(/`$/, "", line)
+      print line
+    }
+  '
+}
+
 section_has_bullet() {
   local section="$1"
 
@@ -105,6 +117,160 @@ section_has_bullet() {
     inside && /^- / { found=1 }
     END { exit found ? 0 : 1 }
   '
+}
+
+validate_all_changelog_entries() {
+  changelog_content | awk '
+    function reset_entry() {
+      has_type=0
+      has_scope=0
+      has_subject=0
+      has_content=0
+      has_impact=0
+      has_verification=0
+      content_bullet=0
+      impact_bullet=0
+      verification_bullet=0
+      field_order=0
+      section=""
+    }
+
+    function entry_error(message) {
+      printf "change-management: CHANGELOG.md entry starting at line %d: %s\n", entry_line, message > "/dev/stderr"
+      bad=1
+    }
+
+    function check_entry() {
+      if (!has_type) {
+        entry_error("missing bullet field: 类型")
+      }
+      if (!has_scope) {
+        entry_error("missing bullet field: 范围")
+      }
+      if (!has_subject) {
+        entry_error("missing bullet field: 提交信息")
+      }
+      if (!has_content) {
+        entry_error("missing section: 变更内容")
+      }
+      if (!has_impact) {
+        entry_error("missing section: 设计影响")
+      }
+      if (!has_verification) {
+        entry_error("missing section: 验证")
+      }
+      if (!content_bullet) {
+        entry_error("变更内容 section must contain a bullet")
+      }
+      if (!impact_bullet) {
+        entry_error("设计影响 section must contain a bullet")
+      }
+      if (!verification_bullet) {
+        entry_error("验证 section must contain a bullet")
+      }
+    }
+
+    /^## / {
+      if (in_entry) {
+        check_entry()
+      }
+      in_entry=1
+      entry_line=NR
+      reset_entry()
+      if ($0 !~ /^## [0-9]{4}-[0-9]{2}-[0-9]{2} - .+/) {
+        entry_error("heading must use: ## YYYY-MM-DD - title")
+      }
+      next
+    }
+
+    !in_entry {
+      next
+    }
+
+    /^- \*\*类型\*\*：/ {
+      if (field_order != 0) {
+        entry_error("类型 must be the first metadata bullet")
+      }
+      has_type=1
+      field_order=1
+      if ($0 !~ /^- \*\*类型\*\*：(文档|设计|实现|修复|重构|测试|工程化|构建|性能|样式|回滚)( \/ (文档|设计|实现|修复|重构|测试|工程化|构建|性能|样式|回滚))*$/) {
+        entry_error("类型 uses unsupported value")
+      }
+      next
+    }
+
+    /^- \*\*范围\*\*：/ {
+      if (field_order != 1) {
+        entry_error("范围 must immediately follow 类型")
+      }
+      has_scope=1
+      field_order=2
+      if ($0 !~ /^- \*\*范围\*\*：.+`.+`/) {
+        entry_error("范围 must include at least one backticked stable path or domain")
+      }
+      next
+    }
+
+    /^- \*\*提交信息\*\*：/ {
+      if (field_order != 2) {
+        entry_error("提交信息 must immediately follow 范围")
+      }
+      has_subject=1
+      field_order=3
+      if ($0 !~ /^- \*\*提交信息\*\*：`[^`]+`$/) {
+        entry_error("提交信息 must be a single backticked commit subject")
+      }
+      next
+    }
+
+    $0 == "### 变更内容" {
+      has_content=1
+      section="content"
+      next
+    }
+
+    $0 == "### 设计影响" {
+      has_impact=1
+      section="impact"
+      next
+    }
+
+    $0 == "### 验证" {
+      has_verification=1
+      section="verification"
+      next
+    }
+
+    /^### / {
+      section=""
+      next
+    }
+
+    /^- / {
+      if (section == "content") {
+        content_bullet=1
+      } else if (section == "impact") {
+        impact_bullet=1
+      } else if (section == "verification") {
+        verification_bullet=1
+      }
+    }
+
+    END {
+      if (in_entry) {
+        check_entry()
+      }
+      exit bad ? 1 : 0
+    }
+  '
+}
+
+validate_changelog_subjects() {
+  local subject
+
+  while IFS= read -r subject; do
+    validate_subject "$subject"
+  done < <(changelog_subjects)
 }
 
 validate_changelog_structure() {
@@ -120,6 +286,9 @@ validate_changelog_structure() {
   if changelog_content | grep -nE '^## ' | grep -vE '^[0-9]+:## [0-9]{4}-[0-9]{2}-[0-9]{2} - .+' >/dev/null; then
     fail "all CHANGELOG.md entries must use: ## YYYY-MM-DD - title"
   fi
+
+  validate_all_changelog_entries
+  validate_changelog_subjects
 
   top_changelog_entry | grep -Eq '^- \*\*类型\*\*：.+' \
     || fail "top changelog entry must include bullet field: 类型"

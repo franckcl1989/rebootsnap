@@ -4,6 +4,32 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-14 - 收紧 AI 治理执行闭环
+
+- **类型**：工程化 / 文档 / 测试
+- **范围**：`AGENTS.md`、`docs/project-governance.md`、`docs/change-management.md`、`docs/decisions/README.md`、`scripts/validate-change-management.sh`、`scripts/verify.sh`、`scripts/setup-dev.sh`、`.githooks/commit-msg`、`CHANGELOG.md`
+- **提交信息**：`chore(governance): tighten AI governance workflow`
+
+### 变更内容
+
+- 更新 `AGENTS.md`，新增 AI 执行闭环，要求 AI 在修改前判断人类确认边界，修改后区分自动验证、人工审核和无法本地确认的远端治理状态。
+- 更新 `docs/project-governance.md`，明确脚本通过不等同于语义正确，事实准确性、设计取舍和远端仓库设置仍需按来源显式审核。
+- 更新 `docs/change-management.md`，说明本地 hook、`scripts/verify.sh`、暂存区提交校验和 CI 的各自自动化覆盖范围。
+- 更新 `.githooks/commit-msg`，让本地提交时先运行 `scripts/verify.sh`，再校验暂存区提交信息与变更记录匹配关系。
+- 更新 `scripts/validate-change-management.sh`，对 `CHANGELOG.md` 的全部历史条目执行结构、固定字段、固定小节、类型值和提交信息格式校验；新增 `export LC_ALL=C` 避免 locale 影响字符类匹配。
+- 更新 `scripts/verify.sh`，新增 `export LC_ALL=C` 确保校验行为跨 locale 一致。
+- 更新 `docs/decisions/README.md`，让当前基线设计同时指向大类和二级分类文档。
+
+### 设计影响
+
+- 后续 AI 代理必须按“加载上下文、判断确认边界、同步稳定入口、运行验证、说明审核依据”的闭环执行任务。
+- 变更管理的自动化边界被明确为结构和一致性校验；设计语义、事实来源和远端分支保护状态必须单独说明，不能由脚本通过代替。
+- 本地提交行为与文档声明对齐：启用 hook 后，提交会自动运行 `scripts/verify.sh` 和暂存区变更管理校验。
+
+### 验证
+
+- 运行 `scripts/verify.sh` 校验治理入口、文档链接、项目地图、变更记录结构和 whitespace。
+
 ## 2026-05-14 - 建立 Linux OS 运行时信息二级分类
 
 - **类型**：设计 / 文档 / 测试

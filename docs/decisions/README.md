@@ -15,4 +15,4 @@
 
 ## 当前记录
 
-暂无独立决策记录。现有基线设计见 `docs/linux-runtime-info-categories.md`。
+暂无独立决策记录。现有基线设计见 `docs/linux-runtime-info-categories.md` 和 `docs/linux-runtime-info-subcategories.md`。
