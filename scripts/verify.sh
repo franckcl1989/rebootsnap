@@ -33,6 +33,7 @@ check_required_files() {
     docs/change-management.md
     docs/linux-runtime-info-categories.md
     docs/linux-runtime-info-subcategories.md
+    docs/linux-runtime-info-collection-items.md
     docs/decisions/README.md
     docs/decisions/0001-runtime-info-boundary.md
     docs/decisions/0002-human-ai-governance.md
@@ -84,6 +85,7 @@ check_project_map() {
     docs/change-management.md
     docs/linux-runtime-info-categories.md
     docs/linux-runtime-info-subcategories.md
+    docs/linux-runtime-info-collection-items.md
     docs/decisions/README.md
     docs/decisions/0001-runtime-info-boundary.md
     docs/decisions/0002-human-ai-governance.md

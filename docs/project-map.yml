@@ -16,6 +16,7 @@ canonical_docs:
   readme: README.md
   runtime_taxonomy: docs/linux-runtime-info-categories.md
   runtime_subcategories: docs/linux-runtime-info-subcategories.md
+  runtime_collection_items: docs/linux-runtime-info-collection-items.md
   decisions_index: docs/decisions/README.md
 
 decisions:
@@ -51,5 +52,6 @@ stable_terms:
   - 设计约束
   - 采集项
   - 二级分类
+  - 三级分类
   - 变更管理
   - 人与 AI 共治

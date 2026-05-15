@@ -4,6 +4,33 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-15 - 建立三级候选采集项基线
+
+- **类型**：设计 / 文档 / 测试
+- **范围**：`docs/linux-runtime-info-collection-items.md`、`docs/linux-runtime-info-subcategories.md`、`docs/glossary.md`、`README.md`、`docs/index.md`、`docs/project-map.yml`、`scripts/verify.sh`、`CHANGELOG.md`
+- **提交信息**：`design(runtime-taxonomy): add collection item baseline`
+
+### 变更内容
+
+- 新增 `docs/linux-runtime-info-collection-items.md`，在 21 个一级大类和 138 个二级分类之下建立 `RT-xx-yy-zz` 三级候选采集项组。
+- 为每个二级分类定义 2 个三级候选采集项组，共 276 个候选采集项组。
+- 在三级项文档中新增二次确认依据组，让每类候选采集项同时指向官方文档入口和源码确认路径。
+- 更新 `docs/linux-runtime-info-subcategories.md`，让二级分类文档指向三级候选采集项文档，并明确最终采集范围应从三级项筛选。
+- 更新 `docs/glossary.md`，新增“三级分类”稳定术语。
+- 更新 `README.md`、`docs/index.md`、`docs/project-map.yml` 和 `scripts/verify.sh`，将三级候选采集项文档接入稳定入口和自动校验。
+
+### 设计影响
+
+- `RT-xx-yy-zz` 成为后续最终采集决策的候选项基线；最终采集文档必须从这些三级项选择、合并或推迟。
+- 本文仍不固定采集命令、字段结构、权限模型、脱敏规则、存储格式或报告布局；这些内容必须在后续 collector 设计和最终采集决策中定义。
+- 后续如果发现必须新增三级候选采集项，应先修改三级分类基线，再更新最终采集决策，避免绕过稳定分类结构。
+
+### 验证
+
+- 运行 `scripts/verify.sh` 校验新增文档入口、项目地图、Markdown 链接、脚本权限、变更记录结构和 whitespace。
+- 人工对照 `docs/linux-runtime-info-subcategories.md`，确认三级文档覆盖全部 21 个一级大类和 138 个二级分类。
+- 人工核对每个三级候选采集项组均带有官方文档和源码二次确认依据组。
+
 ## 2026-05-15 - 固定治理基线决策记录
 
 - **类型**：设计 / 文档 / 工程化
