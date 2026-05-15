@@ -4,6 +4,38 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-15 - 实现 Phase A：框架、输出模块和四个基础采集器
+
+- **类型**：实现
+- **范围**：`Cargo.toml`、`src/main.rs`、`src/collector/mod.rs`、`src/collector/boot.rs`、`src/collector/cpu.rs`、`src/collector/memory.rs`、`src/collector/process.rs`、`src/output.rs`
+- **提交信息**：`feat(collector): implement Phase A framework, output module, and four base collectors`
+
+### 变更内容
+
+- 创建 Cargo 项目，引入 `tokio`、`serde`、`serde_json`、`async-trait`、`procfs`、`nix`、`zbus`、`rtnetlink`、`netlink-packet-route`、`neli`、`flate2`、`tar`、`chrono` 依赖。
+- 实现 `Collector` async trait（`ProbeResult`/`CollectResult` 类型、`probe`/`collect` 方法、`item_timeout` 逐项超时默认值）。
+- 实现 `OutputDir` + `JsonWriter`/`JsonlWriter`/`TextWriter` 输出模块（临时文件 + 原子 rename、64 MiB 大小截断上限、50000 条目截断上限）。
+- 实现 RT-01 启动身份采集器（boot_id/uptime/kernel/cmdline/hostname）。
+- 实现 RT-04 进程与线程采集器（全进程枚举，JSONL 输出，procfs 解析 pid/ppid/name/state/uid/threads/cmdline）。
+- 实现 RT-05 CPU 与调度采集器（/proc/stat/loadavg/pressure/ interrupts/softirqs 原始内容）。
+- 实现 RT-06 内存采集器（meminfo 结构化解析 + vmstat/zoneinfo 原始内容）。
+- 实现 `main.rs` 编排逻辑：串行 probe → 并发 collect → manifest.json → summary.json → tar.gz 打包 → 清理源目录。
+- release profile 启用 LTO + single codegen unit + opt-level=s + strip。
+
+### 设计影响
+
+- `Collector` trait 的 `collect()` 接收 `probe: &ProbeResult` 以避免重复探测。
+- 所有 Writer 使用 `{filename}.tmp` → atomic rename 模式，超时取消不会产生半截文件。
+- 输出归档为 `rebootsnap-{timestamp}.tar.gz`（目录内文件加目录前缀）。
+- 所有硬编码参数（超时、大小上限、条目上限）来自 `docs/collector-security-governance.md`。
+
+### 验证
+
+- `cargo build --release` 编译通过（10 条预期 dead_code 警告，对应 Phase B/C/D 预留类型）。
+- `cargo run --release -- /tmp` 运行成功，生成 tar.gz 归档，包含 manifest.json、summary.json 和四个数据文件。
+- 人工审核 manifest.json 结构符合 ADR 0004，summary.json 包含正向指标（主机名、uptime、进程数、内存、loadavg），进程 JSONL 格式正确（含 `collection` 自描述字段）。
+- 人工审核 tar 归档文件加目录前缀，提取时产生独立子目录。
+
 ## 2026-05-15 - 固定 collector 实现技术栈、输出格式和总体架构
 
 - **类型**：设计 / 文档
