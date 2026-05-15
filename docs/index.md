@@ -26,7 +26,7 @@
 | `docs/linux-runtime-info-categories.md` | 生效 | Linux OS 运行时信息大类定义 |
 | `docs/linux-runtime-info-subcategories.md` | 生效 | Linux OS 运行时信息二级分类 |
 | `docs/linux-runtime-info-collection-items.md` | 生效 | Linux OS 运行时信息三级分类与候选采集项 |
-| `docs/linux-runtime-info-collection-decision.md` | 提议 | Linux OS 运行时信息最终采集决策框架 |
+| `docs/linux-runtime-info-collection-decision.md` | 生效 | Linux OS 运行时信息默认采集约束与首轮采集决策 |
 | `docs/decisions/README.md` | 生效 | 设计决策记录目录 |
 | `docs/decisions/0001-runtime-info-boundary.md` | 生效 | Linux OS 运行时信息边界决策 |
 | `docs/decisions/0002-human-ai-governance.md` | 生效 | 人与 AI 共治执行模型决策 |
