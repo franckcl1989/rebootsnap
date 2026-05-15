@@ -119,7 +119,7 @@ scripts/setup-dev.sh
 - CI 在 push 和 pull request 中校验仓库结构，并校验新增提交的 subject 都能在 `CHANGELOG.md` 中找到。
 - 自动化不能证明设计判断、事实来源或人工审核结论真实充分；这些内容必须在 `CHANGELOG.md` 的 `设计影响` 和 `验证` 中写清依据。
 
-本地 hook 可以被 `git commit --no-verify` 绕过。因此远端仓库应启用分支保护，并要求 `Change Management` workflow 通过后才能合并到主分支。
+本地 hook 可以被 `git commit --no-verify` 绕过。因此远端仓库最终应启用分支保护，并要求 `Change Management` workflow 通过后才能合并到主分支。按当前治理阶段，`0.1.0` 发布前可以暂缓启用远端分支保护；`0.1.0` 发布后应按 `docs/project-governance.md` 和 `docs/decisions/0002-human-ai-governance.md` 启用远端保护。
 
 示例：
 

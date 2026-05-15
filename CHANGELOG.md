@@ -4,6 +4,31 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-15 - 固定治理基线决策记录
+
+- **类型**：设计 / 文档 / 工程化
+- **范围**：`docs/decisions/0001-runtime-info-boundary.md`、`docs/decisions/0002-human-ai-governance.md`、`docs/decisions/README.md`、`README.md`、`docs/index.md`、`docs/project-map.yml`、`docs/project-governance.md`、`docs/change-management.md`、`scripts/verify.sh`、`CHANGELOG.md`
+- **提交信息**：`design(governance): record baseline decisions`
+
+### 变更内容
+
+- 新增 `docs/decisions/0001-runtime-info-boundary.md`，记录 Linux OS 运行时信息边界、分类 ID 稳定性和上层对象排除取舍。
+- 新增 `docs/decisions/0002-human-ai-governance.md`，记录人与 AI 共治执行模型、远端保护阶段安排和采集实现前的安全与测试治理门槛。
+- 更新 `docs/decisions/README.md`，将两篇决策记录接入决策目录。
+- 更新 `README.md`、`docs/index.md` 和 `docs/project-map.yml`，将新增决策记录接入人类导航和机器地图。
+- 更新 `docs/project-governance.md` 和 `docs/change-management.md`，明确远端分支保护在 `0.1.0` 发布后启用，当前快速推进阶段不作为阻塞项。
+- 更新 `scripts/verify.sh`，将新增决策记录纳入必需文件和项目地图一致性校验。
+
+### 设计影响
+
+- 后续采集项、数据模型和报告视图必须优先挂靠到既有 `RT-xx-yy` 二级分类；新增或重编号稳定分类 ID 仍需人类确认。
+- 后续 AI 代理应把远端保护状态表述为 `0.1.0` 发布后启用的待确认治理项，而不是当前阶段的本地阻塞项。
+- 首个会执行主机采集动作的 collector 实现前，必须先补充采集安全治理和测试治理，覆盖只读采集原则、敏感信息边界、脱敏策略、发行版兼容范围和可复现测试样本。
+
+### 验证
+
+- 运行 `scripts/verify.sh` 校验新增决策记录入口、文档导航、项目地图、Markdown 链接、脚本权限、变更记录结构和 whitespace。
+
 ## 2026-05-14 - 收紧 AI 治理执行闭环
 
 - **类型**：工程化 / 文档 / 测试

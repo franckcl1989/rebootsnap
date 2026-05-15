@@ -34,6 +34,8 @@ check_required_files() {
     docs/linux-runtime-info-categories.md
     docs/linux-runtime-info-subcategories.md
     docs/decisions/README.md
+    docs/decisions/0001-runtime-info-boundary.md
+    docs/decisions/0002-human-ai-governance.md
     docs/templates/changelog-entry.md
     docs/templates/decision-record.md
     scripts/setup-dev.sh
@@ -83,6 +85,8 @@ check_project_map() {
     docs/linux-runtime-info-categories.md
     docs/linux-runtime-info-subcategories.md
     docs/decisions/README.md
+    docs/decisions/0001-runtime-info-boundary.md
+    docs/decisions/0002-human-ai-governance.md
     docs/templates/changelog-entry.md
     docs/templates/decision-record.md
     scripts/setup-dev.sh

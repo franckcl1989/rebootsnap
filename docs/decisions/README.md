@@ -15,4 +15,7 @@
 
 ## 当前记录
 
-暂无独立决策记录。现有基线设计见 `docs/linux-runtime-info-categories.md` 和 `docs/linux-runtime-info-subcategories.md`。
+| 记录 | 状态 | 范围 | 用途 |
+| --- | --- | --- | --- |
+| `docs/decisions/0001-runtime-info-boundary.md` | 生效 | `runtime-taxonomy` | 固定 Linux OS 运行时信息边界和分类取舍 |
+| `docs/decisions/0002-human-ai-governance.md` | 生效 | `governance`、`change-management` | 固定人与 AI 共治执行模型和阶段门槛 |

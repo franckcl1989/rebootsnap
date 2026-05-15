@@ -18,6 +18,10 @@ canonical_docs:
   runtime_subcategories: docs/linux-runtime-info-subcategories.md
   decisions_index: docs/decisions/README.md
 
+decisions:
+  runtime_info_boundary: docs/decisions/0001-runtime-info-boundary.md
+  human_ai_governance: docs/decisions/0002-human-ai-governance.md
+
 templates:
   changelog_entry: docs/templates/changelog-entry.md
   decision_record: docs/templates/decision-record.md

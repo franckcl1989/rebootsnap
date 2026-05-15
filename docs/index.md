@@ -26,6 +26,8 @@
 | `docs/linux-runtime-info-categories.md` | 生效 | Linux OS 运行时信息大类定义 |
 | `docs/linux-runtime-info-subcategories.md` | 生效 | Linux OS 运行时信息二级分类 |
 | `docs/decisions/README.md` | 生效 | 设计决策记录目录 |
+| `docs/decisions/0001-runtime-info-boundary.md` | 生效 | Linux OS 运行时信息边界决策 |
+| `docs/decisions/0002-human-ai-governance.md` | 生效 | 人与 AI 共治执行模型决策 |
 
 ## 模板
 
