@@ -4,6 +4,28 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-15 - 对齐三级候选项依据边界
+
+- **类型**：修复 / 设计 / 文档
+- **范围**：`docs/linux-runtime-info-categories.md`、`docs/linux-runtime-info-subcategories.md`、`docs/linux-runtime-info-collection-items.md`、`CHANGELOG.md`
+- **提交信息**：`fix(runtime-taxonomy): align collection item evidence`
+
+### 变更内容
+
+- 从 `RT-01-04-02` 描述中移除 `machine-id`，避免与一级边界中 `machine-id` 为持久化事实来源的排除规则冲突。
+- 为 chrony、cron/cronie 和 GNU C Library NSS/nscd 补充上游入口与依据组，并将对应三级项挂接到这些依据组。
+- 将系统守护进程内存队列和派生缓存相关项收窄为有明确 OS 子系统语义或已纳入依据组的守护进程状态。
+
+### 设计影响
+
+- 保留现有 `RT-xx`、`RT-xx-yy` 和 `RT-xx-yy-zz` ID，不新增、不删除、不重编号稳定分类。
+- 后续最终采集决策不能把任意 daemon 内部队列或缓存自动视为 Linux OS 运行时信息；cron 非 Cronie 实现必须补充对应来源。
+
+### 验证
+
+- 运行 `scripts/verify.sh` 校验治理入口、文档导航、项目地图、Markdown 链接、变更记录结构和 whitespace。
+- 人工复核三级候选项与一级排除边界、二级分类名称和依据组挂接关系一致。
+
 ## 2026-05-15 - 建立最终采集决策框架
 
 - **类型**：文档 / 设计 / 测试

@@ -279,7 +279,7 @@
 ### RT-20 易失事件缓冲、追踪缓冲与内存日志状态
 
 - 判定标准：信息存在于易失事件缓冲、内存日志、追踪缓冲或尚未持久化的系统事件队列中。
-- 包括：dmesg/kernel ring buffer、volatile journald、audit backlog、trace buffer、perf buffer、BPF ring buffer、驱动内部错误缓冲、udev 事件队列、内核 rate-limit 中的未输出状态和系统守护进程的内存事件队列。
+- 包括：dmesg/kernel ring buffer、volatile journald、audit backlog、trace buffer、perf buffer、BPF ring buffer、驱动内部错误缓冲、udev 事件队列、内核 rate-limit 中的未输出状态和有明确 OS 子系统语义的系统守护进程内存事件队列。
 - 不包括：持久化 `/var/log` 文件、持久化 journald、pstore 中已经具备跨重启保存语义的记录、集中日志平台、审计日志归档和监控事件库。
 - 边界：audit 规则本身归入 RT-16；设备错误状态本身归入 RT-17/RT-18，错误事件缓冲归入本类。
 - 重启失真：易失缓冲会清空或被新事件覆盖；即使部分事件曾经落盘，内存缓冲中的顺序、上下文、未落盘片段和被限流片段也可能无法恢复。
@@ -287,7 +287,7 @@
 ### RT-21 OS 缓存、解析器与派生运行状态
 
 - 判定标准：信息由 OS 子系统或系统守护进程为了加速解析、寻址、访问或内存管理而临时维护，可重建但不能代表重启前现场。
-- 包括：DNS resolver cache、NSS/nscd/systemd-resolved 缓存、page cache、dentry cache、inode cache、slab cache、目录项负缓存、路由派生缓存、设备属性缓存、udev 派生属性缓存和其他由 OS 子系统派生出的临时缓存状态。
+- 包括：DNS resolver cache、NSS/nscd/systemd-resolved 缓存、page cache、dentry cache、inode cache、slab cache、目录项负缓存、路由派生缓存、设备属性缓存、udev 派生属性缓存和其他有明确 OS 子系统语义的派生临时缓存状态。
 - 不包括：持久化包缓存、应用自有业务缓存、浏览器缓存、数据库 buffer pool 和可以作为事实来源的长期索引文件。
 - 边界：缓存对象、命中/缺失语义、占用关系和派生结果属于本类；缓存中可能包含的文件内容或应用业务内容不因此纳入本文范围。
 - 重启失真：缓存被清空并随新访问重新生成；重新生成的缓存只能反映重启后的访问路径，不能代表重启前命中、缺失、污染或内存占用现场。

@@ -42,6 +42,13 @@
 - Linux-PAM source tree: https://github.com/linux-pam/linux-pam
 - MIT Kerberos documentation: https://web.mit.edu/kerberos/krb5-latest/doc/
 - sudo source tree: https://github.com/sudo-project/sudo
+- chrony documentation: https://chrony-project.org/documentation.html
+- chrony source tree: https://gitlab.com/chrony/chrony
+- GNU C Library manual: https://www.gnu.org/software/libc/manual/
+- GNU C Library source tree: https://sourceware.org/git/glibc.git
+- Cronie source tree: https://github.com/cronie-crond/cronie
+
+cron 类计划任务因发行版实现不同，本文只以 Cronie 作为 cron 语义的上游确认入口；其他 cron 实现必须在最终采集决策中补充对应来源。系统守护进程类三级项只覆盖本文依据组中明示的 OS 守护进程运行态，任意守护进程的应用内部队列或缓存不因 daemon 身份自动纳入。
 
 | 依据组 | 官方文档入口 | 源码二次确认路径 |
 | --- | --- | --- |
@@ -62,8 +69,11 @@
 | `E-DEVICE` | Linux driver model、udev/systemd device 文档 | Linux `drivers/base/`、`drivers/pci/`、`drivers/usb/`、`drivers/firmware/`；systemd `src/udev/` |
 | `E-POWER` | CPUFreq、cpuidle、thermal、power supply、RAS 文档 | Linux `drivers/cpufreq/`、`drivers/cpuidle/`、`drivers/thermal/`、`drivers/edac/`、`drivers/ras/` |
 | `E-TIME` | Linux timekeeping、timer、workqueue、systemd timer 文档 | Linux `kernel/time/`、`kernel/workqueue.c`；systemd `src/core/timer.c` |
+| `E-TIME-SYNC` | chrony 文档和时间同步运行态文档 | chrony source tree |
+| `E-CRON` | cron/cronie 计划任务实现文档 | Cronie source tree |
 | `E-TRACE` | ftrace、perf、BPF ring buffer、audit backlog 文档 | Linux `kernel/trace/`、`kernel/events/`、`kernel/bpf/`、`kernel/audit*` |
-| `E-CACHE` | procfs memory/cache docs、resolver/NSS/systemd-resolved 文档 | Linux `mm/`、`fs/dcache.c`、`fs/inode.c`、`net/`；systemd `src/resolve/` |
+| `E-CACHE` | procfs memory/cache docs、resolver 和 systemd-resolved 文档 | Linux `mm/`、`fs/dcache.c`、`fs/inode.c`、`net/`；systemd `src/resolve/` |
+| `E-NSS` | GNU C Library NSS 和 nscd 文档 | glibc `nss/`、`nscd/` |
 | `E-SYSTEMD` | systemd unit、service、socket、path、timer、journal、resolved、logind 文档 | systemd `src/core/`、`src/journal/`、`src/resolve/`、`src/login/`、`src/udev/` |
 | `E-AUTH` | sudo、PAM、MIT Kerberos credential cache、OpenSSH 文档 | sudo source、Linux-PAM source、MIT krb5 source、OpenSSH portable source |
 
@@ -76,7 +86,7 @@
 | `RT-01-01` 启动实例身份 | `RT-01-01-01` boot 实例唯一标识；`RT-01-01-02` boot 生命周期边界与重启指纹 | `E-BOOT`、`E-PROC` |
 | `RT-01-02` 全局运行时间关系 | `RT-01-02-01` uptime 与启动时间关系；`RT-01-02-02` wall/monotonic/boottime 全局偏移 | `E-BOOT`、`E-TIME` |
 | `RT-01-03` 运行内核与启动参数生效基线 | `RT-01-03-01` 运行内核身份；`RT-01-03-02` 实际生效启动参数与全局内核基线 | `E-BOOT`、`E-SYSCTL` |
-| `RT-01-04` 主机命名与系统域运行态 | `RT-01-04-01` hostname/domainname 生效值；`RT-01-04-02` machine-id、系统角色和本机身份上下文 | `E-BOOT`、`E-SYSTEMD` |
+| `RT-01-04` 主机命名与系统域运行态 | `RT-01-04-01` hostname/domainname 生效值；`RT-01-04-02` 运行时系统角色和本机身份上下文 | `E-BOOT`、`E-SYSTEMD` |
 
 ### RT-02 内核状态、运行时参数与动态内核对象
 
@@ -280,11 +290,11 @@
 | --- | --- | --- |
 | `RT-19-01` wall clock、monotonic 与 boottime 关系 | `RT-19-01-01` wall/monotonic/boottime 当前值关系；`RT-19-01-02` uptime、suspend time 和 offset | `E-TIME`、`E-BOOT` |
 | `RT-19-02` clocksource、clockevent 与时钟精度状态 | `RT-19-02-01` current clocksource 和 available sources；`RT-19-02-02` clockevent、tick、stability 和 watchdog | `E-TIME` |
-| `RT-19-03` NTP、PTP 与时间同步状态 | `RT-19-03-01` NTP/systemd-timesyncd/chrony sync state；`RT-19-03-02` PTP clock、offset、stratum 和 source quality | `E-TIME`、`E-SYSTEMD` |
+| `RT-19-03` NTP、PTP 与时间同步状态 | `RT-19-03-01` NTP/systemd-timesyncd/chrony sync state；`RT-19-03-02` PTP clock、offset、stratum 和 source quality | `E-TIME`、`E-SYSTEMD`、`E-TIME-SYNC` |
 | `RT-19-04` time namespace 与时间偏移视图 | `RT-19-04-01` time namespace identity 和 owner；`RT-19-04-02` monotonic/boottime offset 和 process reference | `E-TIME`、`E-IPC-NS-CG` |
 | `RT-19-05` 内核 timer、hrtimer 与超时对象 | `RT-19-05-01` kernel timer/hrtimer pending set；`RT-19-05-02` expiry、callback class 和 wait timeout object | `E-TIME` |
 | `RT-19-06` workqueue 与异步任务积压 | `RT-19-06-01` workqueue、worker pool 和 pending work；`RT-19-06-02` delayed work、rescuer、concurrency 和 backlog | `E-TIME`、`E-SCHED` |
-| `RT-19-07` cron、systemd timer 与当前任务实例 | `RT-19-07-01` systemd timer/cron current schedule state；`RT-19-07-02` triggered/running/missed job instance | `E-TIME`、`E-SYSTEMD` |
+| `RT-19-07` cron、systemd timer 与当前任务实例 | `RT-19-07-01` systemd timer/cron current schedule state；`RT-19-07-02` triggered/running/missed job instance | `E-TIME`、`E-SYSTEMD`、`E-CRON` |
 
 ### RT-20 易失事件缓冲、追踪缓冲与内存日志状态
 
@@ -296,21 +306,21 @@
 | `RT-20-04` trace、ftrace 与 perf buffer | `RT-20-04-01` trace/ftrace buffer content and overwrite state；`RT-20-04-02` perf buffer、event source 和 lost sample state | `E-TRACE` |
 | `RT-20-05` BPF ring buffer 与动态观测输出 | `RT-20-05-01` BPF ringbuf/perf event output buffer；`RT-20-05-02` producer/consumer、dropped 和 pending sample state | `E-TRACE` |
 | `RT-20-06` 驱动内部错误缓冲与设备事件队列 | `RT-20-06-01` driver error buffer 和 pending device event；`RT-20-06-02` udev/kernel event queue、dropped 和 processing lag | `E-DEVICE`、`E-SYSTEMD`、`E-TRACE` |
-| `RT-20-07` 系统守护进程内存事件队列 | `RT-20-07-01` system daemon in-memory event queue；`RT-20-07-02` unflushed state buffer、retry queue 和 pending action | `E-SYSTEMD` |
-| `RT-20-08` rate limit、抑制与丢失事件状态 | `RT-20-08-01` kernel/system daemon rate-limit counters；`RT-20-08-02` suppressed/dropped event gaps and current policy | `E-TRACE`、`E-SYSTEMD` |
+| `RT-20-07` 有明确 OS 子系统语义的系统守护进程内存事件队列 | `RT-20-07-01` systemd daemon in-memory event queue；`RT-20-07-02` unflushed systemd state buffer、retry queue 和 pending action | `E-SYSTEMD` |
+| `RT-20-08` rate limit、抑制与丢失事件状态 | `RT-20-08-01` kernel/systemd daemon rate-limit counters；`RT-20-08-02` suppressed/dropped event gaps and current policy | `E-TRACE`、`E-SYSTEMD` |
 
 ### RT-21 OS 缓存、解析器与派生运行状态
 
 | 二级分类 | 三级候选采集项组 | 依据组 |
 | --- | --- | --- |
 | `RT-21-01` DNS resolver 缓存 | `RT-21-01-01` system resolver cache entry 和 scope；`RT-21-01-02` DNSSEC、negative cache、server feature 和 stale state | `E-CACHE`、`E-SYSTEMD` |
-| `RT-21-02` NSS、用户组与名称服务缓存 | `RT-21-02-01` NSS user/group/host/service cache；`RT-21-02-02` cache validity、negative entry 和 source backend | `E-CACHE` |
+| `RT-21-02` NSS、用户组与名称服务缓存 | `RT-21-02-01` NSS user/group/host/service cache；`RT-21-02-02` cache validity、negative entry 和 source backend | `E-NSS` |
 | `RT-21-03` page cache 与文件数据缓存占用 | `RT-21-03-01` page cache occupancy、mapped file 和 reclaimability；`RT-21-03-02` dirty/writeback/cache pressure without payload semantics | `E-CACHE`、`E-MM` |
 | `RT-21-04` dentry、inode 与 slab cache | `RT-21-04-01` dentry/inode cache size and pressure；`RT-21-04-02` slab object cache、shrink state 和 reclaim stats | `E-CACHE`、`E-VFS` |
 | `RT-21-05` 负查找、路径解析与派生索引缓存 | `RT-21-05-01` negative dentry 和 path lookup cache；`RT-21-05-02` derived index、lookup failure 和 cache aging state | `E-CACHE`、`E-VFS` |
 | `RT-21-06` 网络路径派生缓存与协议辅助缓存 | `RT-21-06-01` route/protocol derived cache result；`RT-21-06-02` policy-derived temporary network state without neighbor ownership | `E-CACHE`、`E-NETDEV` |
 | `RT-21-07` 设备属性、udev 派生属性与硬件视图缓存 | `RT-21-07-01` udev derived property cache；`RT-21-07-02` hardware view cache、tag、symlink 和 presentation state | `E-CACHE`、`E-DEVICE`、`E-SYSTEMD` |
-| `RT-21-08` 系统守护进程派生缓存 | `RT-21-08-01` system daemon derived cache for OS lookup/addressing；`RT-21-08-02` cache invalidation、freshness 和 source relationship | `E-CACHE`、`E-SYSTEMD` |
+| `RT-21-08` 有明确 OS 子系统语义的系统守护进程派生缓存 | `RT-21-08-01` systemd-resolved/nscd derived cache for OS lookup/addressing；`RT-21-08-02` cache invalidation、freshness 和 source relationship | `E-CACHE`、`E-SYSTEMD`、`E-NSS` |
 
 ## 完整性校验
 
