@@ -1,0 +1,296 @@
+# Collector 架构
+
+## 文档定位
+
+本文是 RebootSnap collector 实现的总体架构文档。本文在上游设计决策（ADR 0003 技术栈、ADR 0004 输出格式）的约束下，定义模块结构、运行时模型、数据流和实现顺序。
+
+本文不替代上游治理文档（`docs/collector-security-governance.md`、`docs/collector-testing-governance.md`）中的约束，也不重复 `docs/decisions/0003-implementation-tech-stack.md` 和 `docs/decisions/0004-output-format.md` 中的决策理由。本文是这些上游决策的架构级落实。
+
+## 模块结构
+
+```
+src/
+  main.rs               # 入口：启动 runtime → 探测 → 采集 → 浓缩 → 打包
+  manifest.rs           # manifest.json 构建
+  summary.rs            # summary.json 指标计算
+  probe.rs              # 启动阶段一次性能力探测
+  output.rs             # 输出目录创建、JSON/JSONL 流式写入、截断控制
+  archive.rs            # tar.gz 打包与清理
+
+  collect/
+    mod.rs              # Collector trait 定义 + 注册表 + main loop
+    boot.rs             # RT-01 启动实例身份
+    kernel.rs           # RT-02 内核状态与参数
+    systemd.rs          # RT-03 init/systemd 控制面
+    process.rs          # RT-04 进程与线程
+    cpu.rs              # RT-05 CPU、调度与中断
+    memory.rs           # RT-06 内存、虚拟内存与 swap
+    fd.rs               # RT-07 打开句柄与内核引用
+    tmpfs.rs            # RT-08 临时文件系统
+    mount.rs            # RT-09 VFS 与挂载
+    block.rs            # RT-10 块设备与存储 I/O
+    netdev.rs           # RT-11 网络接口与路由
+    socket.rs           # RT-12 socket 与连接
+    netfilter.rs        # RT-13 包过滤与流量控制
+    ipc_ns_cg.rs        # RT-14 IPC、namespace 与 cgroup
+    session.rs          # RT-15 用户登录与会话
+    security.rs         # RT-16 安全策略与凭据
+    device.rs           # RT-17 设备与驱动
+    power.rs            # RT-18 电源与硬件健康
+    time.rs             # RT-19 时间与计划任务
+    events.rs           # RT-20 易失事件缓冲
+    cache.rs            # RT-21 OS 缓存与解析器
+```
+
+`collect/mod.rs` 的职责：
+
+- 定义 `Collector` trait。
+- 持有所有 Collector 实例的注册表（一个 `Vec<Box<dyn Collector>>`）。
+- 对外暴露单入口：`async fn run_all(output_dir: &OutputDir) -> Manifest`。
+
+## Collector trait
+
+```rust
+use std::collections::HashMap;
+use std::time::Duration;
+use async_trait::async_trait;
+
+/// 一次能力探测的结果。
+pub struct ProbeResult {
+    pub status: ProbeStatus,
+    pub detail: HashMap<String, String>,
+}
+
+pub enum ProbeStatus {
+    Available,
+    Degraded(Vec<String>),   // 部分接口不可用
+    Unavailable(String),      // 完全不可用
+}
+
+/// 一次采集的结果。
+pub struct CollectResult {
+    pub status: CollectStatus,
+    pub duration: Duration,
+    pub file_size: u64,
+    pub items_total: Option<u64>,
+    pub items_collected: Option<u64>,
+    pub error_reason: Option<String>,
+}
+
+pub enum CollectStatus {
+    Ok,
+    Truncated(String),       // 因上限截断，附带原因
+    Degraded(Vec<String>),   // 部分子项降级
+    Failed(String),          // 完全失败
+    TimedOut,                // 超时
+}
+
+#[async_trait]
+pub trait Collector: Send + Sync {
+    /// 稳定标识，对应 RT-XX。
+    fn id(&self) -> &'static str;
+
+    /// 输出文件名（不含路径），如 "processes.jsonl"。
+    fn filename(&self) -> &'static str;
+
+    /// 该大类是否必采。false 表示选采，仅在剩余时间与资源允许时执行。
+    fn required(&self) -> bool { true }
+
+    /// 启动阶段的一次性探测。返回接口可用性、权限状态。
+    async fn probe(&self) -> ProbeResult;
+
+    /// 执行业务采集。接收 probe 阶段的结果以避免重复探测。
+    /// output 提供临时文件写入方法。
+    /// timeout 为逐项超时，调用方通过 tokio::time::timeout 包装。
+    /// 返回 Collector 自行设定的逐项超时（2s 或 10s）。
+    fn item_timeout(&self) -> Duration { Duration::from_secs(2) }
+
+    async fn collect(
+        &self,
+        output: &OutputDir,
+        probe: &ProbeResult,
+    ) -> CollectResult;
+}
+```
+
+## 运行时模型
+
+### 异步调度
+
+- tokio `#[tokio::main]` multi-threaded runtime。
+- worker 线程数自动：`available_parallelism()`（tokio 默认行为）。
+- 不人为设定线程数上限或比例。
+
+### 采集并发
+
+`main` 中的执行序列：
+
+1. **probe 阶段（串行，同步等待）**：遍历所有注册的 Collector，调用 `probe()` 并汇总 `ProbeResult`。probe 只做接口存在性检查，成本极低（`stat()`、D-Bus 短连接等），总耗时应在 1 秒内完成。
+
+2. **collect 阶段（并发，按需调度）**：对 `required == true` 的 Collector，每个作为独立 tokio task 启动，外层包装 `tokio::time::timeout(item_timeout, task)`。所有 task 并发提交给 tokio runtime。tokio 自动在可用 worker 线程间调度：
+
+```
+task1: RT-01 [procfs]     ──────── (12ms)
+task2: RT-02 [procfs]     ─────── (45ms)
+task3: RT-03 [D-Bus]      ────────── (120ms)
+task4: RT-04 [procfs]     ────────────────────── (850ms)
+task5: RT-05 [procfs]     ─── (8ms)
+task6: RT-06 [procfs]     ── (5ms)
+task7: RT-11 [netlink]    ───────── (300ms)
+...
+                            ← tokio 自动调度到 N 个 worker →
+```
+
+3. **全局超时**：整个 collect 阶段包装在 `tokio::time::timeout(global_timeout, all_collect_futures)` 中。超时后尚未完成的 task 被取消，其临时文件被丢弃（未 rename）。已完成的容器输出的临时文件已 rename 为最终文件。未完成的 task 在 manifest 中标记为 `timed_out`。所有采集结束后统一清理残留的 `.tmp` 文件。
+
+4. **选采调度**：`required == false` 的 Collector 在所有 `required` 项完成后，若全局时间和文件大小预算仍有余量，按注册顺序逐个启动。选采项不计入全局完整性判断。
+
+5. **浓缩阶段（串行）**：所有采集完成后，遍历已有输出，计算 `summary.json` 指标，写入 `manifest.json`。
+
+6. **打包阶段**：通过 `tar` + `flate2` crate 构建 `rebootsnap-{timestamp}.tar.gz` 归档，完成后删除原始目录。
+
+### I/O 并发特性
+
+procfs 和 sysfs 是虚拟文件系统，`read` 不产生真实磁盘 I/O，在 async 上下文中直接调用 `tokio::fs::read_to_string` 或不阻塞 worker 的同步 `std::fs::read_to_string` 均可。netlink 和 D-Bus 涉及 socket 读写，由对应 crate 管理 I/O 复用。
+
+同一输出文件不会被两个 task 同时写入——每个 Collector 对应唯一文件。
+
+## 输出模块
+
+`output.rs` 提供 `OutputDir` 结构体：
+
+```rust
+pub struct OutputDir {
+    root: PathBuf,
+}
+
+impl OutputDir {
+    /// 创建输出根目录（如 rebootsnap-20260515-143000/）。
+    pub async fn create(root: &Path) -> Result<Self>;
+
+    /// 打开一个 JSON 文件写入器。collector 先序列化到内存 buffer；
+    /// 若 buffer 未超 64 MiB，写入临时文件并 rename 为最终文件名；
+    /// 若超限，丢弃 buffer，记录为 truncated，不产生文件。
+    pub async fn json_writer(&self, filename: &str) -> Result<JsonWriter>;
+
+    /// 打开一个 JSONL 流式写入器。每行独立 JSON 对象。
+    /// 内部以临时文件写入，完成后 rename。写入过程中追踪字节数，
+    /// 达到 64 MiB 时写入截断标记行（合法的 JSONL），停止接受后续行。
+    pub async fn jsonl_writer(&self, filename: &str) -> Result<JsonlWriter>;
+
+    /// 打开一个文本写入器。临时文件写入，完成后 rename。
+    /// 字节达到上限时截断，保留已写入内容。
+    pub async fn text_writer(&self, filename: &str) -> Result<TextWriter>;
+}
+```
+
+所有 Writer 内部使用临时文件模式：写入期间数据进入 `{filename}.tmp`，`Writer` 被 drop 或显式 `commit()` 时 atomically rename 为 `{filename}`。若超时取消导致 Writer 被 drop 而未 commit，临时文件在后续清理中被删除——保证最终文件名不存在半截文件。
+
+## RT 大类与接口映射
+
+| RT | 大类 | 主要接口 | 主要 crate | 输出格式 |
+| --- | --- | --- | --- | --- |
+| RT-01 | 启动实例身份 | `/proc/sys/kernel/random/boot_id`, `/proc/uptime`, `/proc/version`, `/proc/cmdline`, `/proc/sys/kernel/hostname` | std::fs | JSON |
+| RT-02 | 内核状态 | `/proc/sys/`, `/proc/modules` | std::fs + `procfs` | JSON |
+| RT-03 | 初始化系统 | org.freedesktop.systemd1 D-Bus | `zbus` | JSON |
+| RT-04 | 进程与线程 | `/proc/[pid]/*` | `procfs` | JSONL |
+| RT-05 | CPU 与调度 | `/proc/stat`, `/proc/loadavg`, `/proc/pressure/cpu`, `/proc/interrupts`, `/proc/softirqs` | std::fs | JSON |
+| RT-06 | 内存 | `/proc/meminfo`, `/proc/pressure/memory`, `/proc/vmstat`, `/proc/zoneinfo` | `procfs` | JSON |
+| RT-07 | 打开句柄 | `/proc/[pid]/fd/`, `/proc/[pid]/fdinfo/`, `/proc/locks` | `procfs` | JSONL |
+| RT-08 | 临时文件系统 | `/run`, `/dev/shm`, `/tmp` 的 stat 信息 | std::fs | JSON |
+| RT-09 | VFS 与挂载 | `/proc/[pid]/mountinfo` | `procfs` | JSONL |
+| RT-10 | 块设备 | `/sys/block/*`, `/proc/diskstats`, `/proc/pressure/io` | std::fs | JSON |
+| RT-11 | 网络接口 | netlink RTM_GETLINK / RTM_GETADDR / RTM_GETROUTE / RTM_GETNEIGH | `rtnetlink` + `netlink-packet-route` | JSONL |
+| RT-12 | socket | `/proc/net/tcp`, `/proc/net/tcp6`, `/proc/net/udp`, `/proc/net/udp6`, `/proc/net/unix` | `procfs` | JSONL |
+| RT-13 | 包过滤 | conntrack netlink, nftables netlink (via neli), tc netlink | `conntrack`, `neli`, `rtnetlink` | JSON |
+| RT-14 | IPC/ns/cgroup | `/proc/[pid]/ns/`、`/proc/[pid]/cgroup`、`/proc/cgroups`、`/proc/sysvipc/`（等效于 ipcs 命令输出，不走命令调用） | `procfs` | JSON |
+| RT-15 | 用户会话 | `/proc/[pid]/loginuid`, `/var/run/utmp` | std::fs + `procfs` | JSONL |
+| RT-16 | 安全策略 | `/proc/[pid]/status`, `/proc/[pid]/attr/`, `/proc/sys/kernel/random/` | `procfs` | JSON |
+| RT-17 | 设备 | `/sys/devices/`, `/sys/bus/`, `/sys/class/`, `/sys/module/*/drivers/` | std::fs | JSON |
+| RT-18 | 电源 | `/sys/class/thermal/`, `/sys/power/`, `/sys/devices/system/cpu/cpufreq/` | std::fs | JSON |
+| RT-19 | 时间 | `/proc/timer_list`, org.freedesktop.timedate1 D-Bus, org.freedesktop.timesync1 D-Bus | std::fs + `zbus` | JSON |
+| RT-20 | 易失事件缓冲 | klogctl (SYSLOG_ACTION_READ_ALL), org.freedesktop.journald D-Bus | `nix` + `zbus` | .txt |
+| RT-21 | OS 缓存 | `/proc/slabinfo`, `/proc/meminfo` 中的 cache 字段 | std::fs | JSON |
+
+## 实现阶段与优先级
+
+按技术风险递增，不是按 RT 编号。
+
+### 阶段 A：骨架与 procfs 通路
+
+**内容**：项目骨架（`main.rs`、`probe.rs`、`output.rs`、`manifest.rs`、`summary.rs`、`archive.rs`）+ RT-01、RT-05、RT-06、RT-04。
+
+**优先级理由**：
+
+- 这四个大类全是 procfs 读取，零外部协议依赖，技术风险最低。
+- RT-04 是体积最大的大类，最先实现可以最早验证 JSONL 流式写入、条目截断和超时控制在规模场景下的行为。
+- RT-01、RT-05、RT-06 覆盖了 OOM、CPU 打满、负载飙高三类最高频故障的入口证据。
+
+**产出**：第一个可运行、可出 snapshot 的 collector 二进制。
+
+### 阶段 B：systemd 通路
+
+**内容**：RT-03。
+
+**优先级理由**：
+
+- 第一个依赖外部协议的大类。打通 `zbus` 后，全异步 D-Bus 链路验证完成。
+- systemd unit/job/inhibitor 状态对"服务为何挂了"、"谁在阻止重启"的解释价值无可替代。
+
+### 阶段 C：netlink 通路
+
+**内容**：RT-11、RT-12、RT-13。
+
+**优先级理由**：
+
+- netlink 是三个外部协议路径中技术复杂度最高的。
+- RT-11（网口与路由）使用成熟的 `rtnetlink` crate，风险可控。
+- RT-12（socket）走 procfs `/proc/net/*`，实际上是阶段 A 的延续。
+- RT-13 的 nftables 部分（`neli` 构建 netlink 消息）是本阶段唯一需要从底层构建协议消息的部分，也是整个项目中技术风险最高的单点。放在阶段 C 是为了给后续批量收尾留足时间。
+
+### 阶段 D：批量收尾
+
+**内容**：RT-02、RT-07、RT-08、RT-09、RT-10、RT-14、RT-15、RT-16、RT-17、RT-18、RT-19、RT-20、RT-21。
+
+**优先级理由**：
+
+- 全部是 procfs/sysfs 读取，技术零风险，工程上纯铺量。
+- 有阶段 A~C 积累的 `Collector` trait 模板和输出模块工具，每个大类 100~200 行即可完成。
+
+### 阶段 E：测试体系与补全
+
+**内容**：mock fixtures、集成测试。
+
+**优先级理由**：
+
+- mock fixture 不阻塞功能开发，但必须在上游消费者使用 collector 前完成。
+- 按 `docs/collector-testing-governance.md` 五个场景构建 fixture。
+
+## 硬编码参数速查
+
+| 参数 | 值 | 来源 |
+| --- | --- | --- |
+| 逐项超时（常规） | 2 秒 | `docs/collector-security-governance.md` |
+| 逐项超时（量大项：RT-04、RT-07、RT-09、RT-11、RT-12 等） | 10 秒 | 同上，大量条目遍历容许更长 |
+| 输出大小上限 | 64 MiB/项 | 同上 |
+| 条目截断上限 | 50000 | 同上 |
+| 递归深度上限 | 3 级 | 同上 |
+| 全局超时 | 300 秒 | 同上 |
+| 输出文件权限 | 0600 或 0640（owner root） | 同上 |
+| top_consumers 截取数 | 3 | 本文定义 |
+| 输出根目录命名模板 | `rebootsnap-{local:%Y%m%d-%H%M%S}` | 本文定义 |
+| tar 后缀 | `.tar.gz` | 本文定义 |
+
+所有参数在源码中以常量定义，不从外部读取。
+
+## 错误分类
+
+collector 中发生的错误分为三类：
+
+| 类别 | 语义 | collector 行为 |
+| --- | --- | --- |
+| 预期降级 | 接口不可用、权限不足、发行版不匹配 | 记录原因到 manifest，继续运行 |
+| 资源超限 | 超时、输出截断、条目截断 | 标记截断点，保留已采集数据，继续运行 |
+| 非预期失败 | panic、未处理的 fatal error | tokio task 级别的 panic 被 catch，标记对应 RT 为 `failed`，不影响其他 task |
+
+collector 不会因任何单个采集项失败而整体退出。唯一的整体退出路径是全局超时（优雅退出，保留已完成数据）和无法创建的输出目录（启动前致命的）。

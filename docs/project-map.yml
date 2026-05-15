@@ -18,11 +18,16 @@ canonical_docs:
   runtime_subcategories: docs/linux-runtime-info-subcategories.md
   runtime_collection_items: docs/linux-runtime-info-collection-items.md
   runtime_collection_decision: docs/linux-runtime-info-collection-decision.md
+  collector_security: docs/collector-security-governance.md
+  collector_testing: docs/collector-testing-governance.md
+  collector_architecture: docs/collector-architecture.md
   decisions_index: docs/decisions/README.md
 
 decisions:
   runtime_info_boundary: docs/decisions/0001-runtime-info-boundary.md
   human_ai_governance: docs/decisions/0002-human-ai-governance.md
+  implementation_tech_stack: docs/decisions/0003-implementation-tech-stack.md
+  output_format: docs/decisions/0004-output-format.md
 
 templates:
   changelog_entry: docs/templates/changelog-entry.md
@@ -56,3 +61,7 @@ stable_terms:
   - 三级分类
   - 变更管理
   - 人与 AI 共治
+  - 有界执行
+  - 降级
+  - 能力探测
+  - 脱敏

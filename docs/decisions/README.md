@@ -19,3 +19,5 @@
 | --- | --- | --- | --- |
 | `docs/decisions/0001-runtime-info-boundary.md` | 生效 | `runtime-taxonomy` | 固定 Linux OS 运行时信息边界和分类取舍 |
 | `docs/decisions/0002-human-ai-governance.md` | 生效 | `governance`、`change-management` | 固定人与 AI 共治执行模型和阶段门槛 |
+| `docs/decisions/0003-implementation-tech-stack.md` | 生效 | `collector` | 固定 collector 实现语言、异步 runtime、crate 依赖和零配置原则 |
+| `docs/decisions/0004-output-format.md` | 生效 | `collector` | 固定 collector 输出目录结构、文件格式和 AI 消费路径 |

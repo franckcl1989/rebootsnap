@@ -4,6 +4,64 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-15 - 固定 collector 实现技术栈、输出格式和总体架构
+
+- **类型**：设计 / 文档
+- **范围**：`docs/decisions/0003-implementation-tech-stack.md`、`docs/decisions/0004-output-format.md`、`docs/collector-architecture.md`、`docs/decisions/README.md`、`docs/index.md`、`docs/project-map.yml`、`scripts/verify.sh`、`README.md`、`CHANGELOG.md`
+- **提交信息**：`design(collector): define tech stack, output format and architecture`
+
+### 变更内容
+
+- 新增 `docs/decisions/0003-implementation-tech-stack.md`，固定 Rust 语言、tokio 多线程异步 runtime、零配置原则、`x86_64-unknown-linux-musl` 静态单二进制分发和全部 crate 依赖选型（含 `procfs`、`zbus`、`rtnetlink`、`conntrack`、`neli`、`nix`、`serde`、`serde_json`、`flate2`、`tar`、`async-trait`）。
+- 新增 `docs/decisions/0004-output-format.md`，固定目录式输出结构、`manifest.json` + `summary.json` 双导航文件、JSON/JSONL/.txt 三种文件格式、JSON 截断策略（buffer-then-commit）、自描述数据对象、截断标注约定和多文件 item 约定。
+- 新增 `docs/collector-architecture.md`，定义模块结构、Collector trait（含 `ProbeResult` 注入 `collect()`、`CollectResult` 完整字段、逐项超时 `item_timeout()`）、多线程并发模型、临时文件原子 rename 写入、五个实现阶段和 RT 大类到 OS 接口与 crate 的完整映射。
+- 上一轮提交后全角度审核发现 5 个设计级问题和 7 个文档级问题，本轮全部修复（crate 表补全、probe-collect 耦合、JSON 截断语义、超时取消安全、summary 截断标注、措辞澄清）。
+- 更新 `docs/decisions/README.md`、`docs/index.md`、`docs/project-map.yml`、`scripts/verify.sh` 和 `README.md`，将三篇新文档接入稳定入口和自动校验。
+
+### 设计影响
+
+- collector 实现必须使用 Rust + tokio 多线程，不接受其他语言或运行时。
+- collector 不接受配置参数；所有参数均为硬编码常量或动态自适应。
+- 输出格式固定为本文定义的目录结构、文件命名和自描述约定；下游工具按 `manifest.json` 索引遍历文件。
+- 实现顺序固定为五个阶段：procfs 通路 → systemd 通路 → netlink 通路 → 批量收尾 → 测试体系。
+- 新增第三方 crate 依赖前必须确认该 crate 为纯 Rust 且不引入运行期 C 库依赖。
+
+### 验证
+
+- 运行 `scripts/verify.sh` 校验治理入口、文档导航、项目地图、Markdown 链接、变更记录结构和 whitespace，确认所有新增文件入口和导航一致。
+- 人工审核三篇新文档与 ADR 0001、ADR 0002、采集安全治理和测试治理无矛盾。
+- 人工确认全部选定 crate 均为纯 Rust 且活跃维护，唯一例外是 nftables 需用 `neli` 构建 netlink 消息（因 `netlink-packet-netfilter` 已废弃约 3 年）。
+- 人工审核输出格式满足人类（grep 直接看）、工具（按索引遍历）和 AI（manifest → summary → 定向钻入）三种消费路径。
+
+## 2026-05-15 - 建立 collector 安全与测试治理基线
+
+- **类型**：设计 / 文档
+- **范围**：`docs/collector-security-governance.md`、`docs/collector-testing-governance.md`、`docs/index.md`、`docs/project-map.yml`、`docs/glossary.md`、`scripts/verify.sh`、`README.md`、`CHANGELOG.md`
+- **提交信息**：`design(collector): establish security and testing governance baseline`
+
+### 变更内容
+
+- 新增 `docs/collector-security-governance.md`，固定只读采集原则、敏感信息禁止清单、原始值记录策略、权限模型、有界执行约束和安全威胁模型。
+- 新增 `docs/collector-testing-governance.md`，固定发行版兼容范围（首轮 Rocky Linux 8.x / systemd / 内核 4.18.x / x86_64）、能力探测策略、可复现 mock 测试样本规范和最小测试覆盖要求。
+- 更新 `docs/glossary.md`，新增有界执行、降级、能力探测和脱敏四个稳定术语。
+- 更新 `scripts/verify.sh`，将两篇治理文档纳入必需文件校验和项目地图一致性校验。
+- 更新 `docs/index.md`、`docs/project-map.yml` 和 `README.md`，将两篇治理文档接入稳定入口。
+
+### 设计影响
+
+- collector 实现前必须逐条通过安全治理约束（只读、禁止采集项、有界执行、权限降级、威胁模型）。
+- collector 实现前必须建立 mock fixture 测试体系，覆盖正常系统、资源紧张、部分接口缺失、权限不足和异常数据五个场景。
+- 数据记录策略固定为原始值记录，不在 collector 侧做脱敏；脱敏留给报告层或独立后处理工具。
+- 发行版兼容范围固定为首轮 Rocky Linux 8.x；扩大范围前必须先更新 `docs/collector-testing-governance.md` 并补充对应测试样本。
+- ADR 0002 的安全与测试治理门槛以此两篇文档为落地依据；不再以 ADR 0002 中简短一句话作为唯一约束。
+
+### 验证
+
+- 运行 `scripts/verify.sh` 校验治理入口、文档导航、项目地图、Markdown 链接、变更记录结构和 whitespace，确认所有必需文件存在且导航一致。
+- 人工审核两篇治理文档覆盖了 ADR 0002 要求的全部治理领域（只读采集原则、敏感信息边界、脱敏策略、发行版兼容范围、可复现测试样本）。
+- 人工审核安全与测试治理文档互不冲突，且与 `docs/linux-runtime-info-collection-decision.md` 的决策边界一致。
+- 人工核对新增术语定义与跨文档用法一致，无歧义或冲突。
+
 ## 2026-05-15 - 固定默认采集策略
 
 - **类型**：设计 / 文档
