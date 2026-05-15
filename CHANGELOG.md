@@ -4,6 +4,30 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-15 - 建立最终采集决策框架
+
+- **类型**：文档 / 设计 / 测试
+- **范围**：`docs/linux-runtime-info-collection-decision.md`、`README.md`、`docs/index.md`、`docs/project-map.yml`、`scripts/verify.sh`、`CHANGELOG.md`
+- **提交信息**：`docs(runtime-taxonomy): scaffold collection decision framework`
+
+### 变更内容
+
+- 新增 `docs/linux-runtime-info-collection-decision.md`，作为后续从三级候选采集项筛选最终采集范围的决策文档框架。
+- 固定最终采集决策的输入基线、状态枚举、决策维度、表格模板、一级大类填充入口和完整性检查规则。
+- 当前只建立框架，不填入具体 `RT-xx-yy-zz` 采集项决策。
+- 更新 `README.md`、`docs/index.md`、`docs/project-map.yml` 和 `scripts/verify.sh`，将框架文档接入稳定入口和自动校验。
+
+### 设计影响
+
+- 后续最终采集范围必须从 `docs/linux-runtime-info-collection-items.md` 中筛选，不得绕过三级候选采集项直接新增最终采集项。
+- 后续具体决策必须使用固定状态：`必采`、`选采`、`暂缓`、`禁止采集`、`待定`。
+- 保留为 `待定` 的项目不得进入 collector 实现，避免框架占位被误用为实现授权。
+
+### 验证
+
+- 运行 `scripts/verify.sh` 校验新增框架文档入口、项目地图、Markdown 链接、脚本权限、变更记录结构和 whitespace。
+- 人工审核框架只定义结构和填充规则，未填入具体采集项决策。
+
 ## 2026-05-15 - 建立三级候选采集项基线
 
 - **类型**：设计 / 文档 / 测试
