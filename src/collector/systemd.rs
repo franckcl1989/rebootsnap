@@ -6,6 +6,7 @@ use crate::collector::{CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::fs::FsRoots;
 use crate::output::OutputDir;
 
+#[derive(Clone)]
 pub struct Systemd;
 
 #[derive(Serialize)]

@@ -7,6 +7,7 @@ use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOu
 use crate::fs::FsRoots;
 use crate::output::OutputDir;
 
+#[derive(Clone)]
 pub struct Memory;
 
 #[derive(Serialize)]

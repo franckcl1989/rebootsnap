@@ -89,6 +89,7 @@ pub enum CollectionStatus {
     TimedOut,
 }
 
+#[derive(Clone)]
 pub enum CollectionTask {
     Block(block::Block),
     Boot(boot::Boot),
@@ -231,4 +232,30 @@ impl CollectionTask {
             CollectionTask::Tmpfs(c) => c.collect(output, probe).await,
         }
     }
+}
+
+pub fn all_tasks() -> [CollectionTask; 21] {
+    [
+        CollectionTask::Boot(self::boot::Boot),
+        CollectionTask::Block(self::block::Block),
+        CollectionTask::Cache(self::cache::Cache),
+        CollectionTask::Cpu(self::cpu::Cpu),
+        CollectionTask::Device(self::device::Device),
+        CollectionTask::Events(self::events::Events),
+        CollectionTask::Fd(self::fd::Fd),
+        CollectionTask::IpcNsCg(self::ipc_ns_cg::IpcNsCg),
+        CollectionTask::Kernel(self::kernel::Kernel),
+        CollectionTask::Memory(self::memory::Memory),
+        CollectionTask::Mount(self::mount::Mount),
+        CollectionTask::Netdev(self::netdev::Netdev),
+        CollectionTask::Netfilter(self::netfilter::Netfilter),
+        CollectionTask::Power(self::power::Power),
+        CollectionTask::Process(self::process::Process),
+        CollectionTask::Security(self::security::Security),
+        CollectionTask::Session(self::session::Session),
+        CollectionTask::Socket(self::socket::Socket),
+        CollectionTask::Systemd(self::systemd::Systemd),
+        CollectionTask::Time(self::time::Time),
+        CollectionTask::Tmpfs(self::tmpfs::Tmpfs),
+    ]
 }

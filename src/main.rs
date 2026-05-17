@@ -4,21 +4,13 @@ use std::process;
 use std::time::Instant;
 
 use chrono::Local;
-use serde::Serialize;
-
-mod collector;
-mod error;
-mod fs;
-mod output;
-
-use collector::{
-    boot::Boot, cpu::Cpu, memory::Memory, netdev::Netdev, netfilter::Netfilter,
-    process::Process, socket::Socket, systemd::Systemd, CollectionOutcome,
-    CollectionStatus, CollectionTask, ProbeOutcome,
+use rebootsnap::collector::{
+    all_tasks, CollectionOutcome, CollectionStatus, ProbeOutcome,
 };
-use error::ArchiveError;
-use crate::fs::FsRoots;
-use output::OutputDir;
+use rebootsnap::error::ArchiveError;
+use rebootsnap::fs::FsRoots;
+use rebootsnap::output::OutputDir;
+use serde::Serialize;
 
 const GLOBAL_TIMEOUT_SECS: u64 = 300;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -109,32 +101,6 @@ fn loadavg() -> (Option<f64>, Option<f64>, Option<f64>) {
         parts.get(1).and_then(|s| s.parse().ok()),
         parts.get(2).and_then(|s| s.parse().ok()),
     )
-}
-
-fn all_tasks() -> [CollectionTask; 21] {
-    [
-        CollectionTask::Boot(Boot),
-        CollectionTask::Block(collector::block::Block),
-        CollectionTask::Cache(collector::cache::Cache),
-        CollectionTask::Cpu(Cpu),
-        CollectionTask::Device(collector::device::Device),
-        CollectionTask::Events(collector::events::Events),
-        CollectionTask::Fd(collector::fd::Fd),
-        CollectionTask::IpcNsCg(collector::ipc_ns_cg::IpcNsCg),
-        CollectionTask::Kernel(collector::kernel::Kernel),
-        CollectionTask::Memory(Memory),
-        CollectionTask::Mount(collector::mount::Mount),
-        CollectionTask::Netdev(Netdev),
-        CollectionTask::Netfilter(Netfilter),
-        CollectionTask::Power(collector::power::Power),
-        CollectionTask::Process(Process),
-        CollectionTask::Security(collector::security::Security),
-        CollectionTask::Session(collector::session::Session),
-        CollectionTask::Socket(Socket),
-        CollectionTask::Systemd(Systemd),
-        CollectionTask::Time(collector::time::Time),
-        CollectionTask::Tmpfs(collector::tmpfs::Tmpfs),
-    ]
 }
 
 fn create_tar_gz(

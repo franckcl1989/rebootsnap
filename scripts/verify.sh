@@ -173,6 +173,8 @@ main() {
   if ! git -C "$ROOT" diff --cached --quiet --; then
     git -C "$ROOT" diff --cached --check
   fi
+
+  cargo test --workspace -- --test-threads=1
 }
 
 main "$@"

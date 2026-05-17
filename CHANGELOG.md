@@ -4,6 +4,36 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-17 - Phase E：测试体系建立，mock fixtures + 集成测试 + CI 接入
+
+- **类型**：实现 / 测试
+- **范围**：`src/fs.rs`、`src/lib.rs`、`src/collector/*`、`src/main.rs`、`tests/`、`scripts/verify.sh`
+- **提交信息**：`feat(test): add FsRoots mock support, integration tests with 3 fixtures`
+
+### 变更内容
+
+- `src/fs.rs`：`FsRoots` struct 含 `resolve()` 路径重定向方法，生产/测试统一接口
+- `src/lib.rs`：新增 library crate，`pub mod` 暴露 collector/fs/output/error 供集成测试
+- `src/main.rs`：重构为依赖 lib crate，移除 `mod` 声明
+- 所有 21 个 collector 增加 `#[derive(Clone)]`，`probe()` 接受 `&FsRoots` 参数
+- `tests/fixtures/`：3 个 mock 场景（normal 120 文件、partial 112 文件、malformed 120 文件）
+- `tests/integration.rs`：4 个测试（正常/降级/异常数据/全局超时）
+- `scripts/verify.sh`：新增 `cargo test` 步骤
+- `Cargo.toml`：新增 `[dev-dependencies]` tokio + tempfile
+
+### 设计影响
+
+- `FsRoots::default()` 映射真实 `/proc` 等路径，生产行为零变化
+- 所有 collector 路径可通过 `probe.roots.resolve()` 注入 mock 目录
+- procfs crate（process.rs、memory.rs）不受 FsRoots 控制，mock 测试仅覆盖其 fallback 路径
+- `all_tasks()` 移至 `src/collector/mod.rs` 公开 API
+
+### 验证
+
+- `cargo build --release` 零 warning，`cargo clippy` 零 warning
+- `scripts/verify.sh` exit 0（含 `cargo test` 4/4 通过）
+- `cargo run --release -- /tmp` 生成 22 文件 tar.gz，运行时正确
+
 ## 2026-05-17 - FsRoots 路径抽象：为 mock 测试引入文件系统路径重定向
 
 - **类型**：实现

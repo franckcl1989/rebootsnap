@@ -23,3 +23,7 @@ lto = true
 codegen-units = 1
 opt-level = "s"
 strip = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "fs", "time", "macros", "test-util"] }
+tempfile = "3"

@@ -1,0 +1,5 @@
+Character devices:
+  1 mem
+  4 tty
+Block devices:
+  8 sd

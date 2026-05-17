@@ -5,6 +5,7 @@ use crate::collector::{CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::fs::FsRoots;
 use crate::output::{OutputDir, SIZE_LIMIT};
 
+#[derive(Clone)]
 pub struct Process;
 
 #[derive(Serialize)]
