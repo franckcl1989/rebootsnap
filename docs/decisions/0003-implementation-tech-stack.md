@@ -79,7 +79,7 @@
 
 - collector 源码全部为 Rust，不得包含 C/C++ 代码或 FFI 调用非 Rust 库。
 - 新增依赖前必须验证该 crate 为纯 Rust 且活跃维护，不得引入运行期 C 库依赖。
-- `Cargo.toml` 中所有依赖使用 `[target.'cfg(target_os = "linux")'.dependencies]` 限定平台。
+- `Cargo.toml` 中所有依赖均使用 `[dependencies]` 段声明（无需平台限定：collector 仅面向 Linux，跨平台构建非目标场景）。
 - CI 使用 `x86_64-unknown-linux-musl` target 编译，输出单个静态 ELF。
 - collector 不得通过 `std::process::Command` 调用任何外部命令；所有数据来源必须是 procfs、sysfs、netlink socket、D-Bus 连接或 syscall。
 - 配置参数不从文件、环境变量或命令行读取；修改硬编码值必须先更新 `docs/collector-security-governance.md` 中对应的约束值。

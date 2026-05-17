@@ -115,9 +115,9 @@ pub enum CollectionStatus {
 
 `main` 中的执行序列：
 
-1. **probe 阶段（串行，同步等待）**：遍历所有注册的 Collector，调用 `probe()` 并汇总 `ProbeResult`。probe 只做接口存在性检查，成本极低（`stat()`、D-Bus 短连接等），总耗时应在 1 秒内完成。
+1. **probe 阶段（串行，同步等待）**：遍历所有注册的 Collector，调用 `probe()` 并汇总 `ProbeOutcome`。probe 只做接口存在性检查（`Path::exists()`），成本极低，总耗时应在 1 秒内完成。
 
-2. **collect 阶段（并发，按需调度）**：对 `required == true` 的 Collector，每个作为独立 tokio task 启动，外层包装 `tokio::time::timeout(item_timeout, task)`。所有 task 并发提交给 tokio runtime。tokio 自动在可用 worker 线程间调度：
+2. **collect 阶段（并发，按需调度）**：每个 collector 作为独立 tokio task 启动，外层包装 `tokio::time::timeout(item_timeout, task)`。所有 task 并发提交给 tokio runtime。tokio 自动在可用 worker 线程间调度：
 
 ```
 task1: RT-01 [procfs]     ──────── (12ms)
@@ -131,9 +131,9 @@ task7: RT-11 [netlink]    ───────── (300ms)
                             ← tokio 自动调度到 N 个 worker →
 ```
 
-3. **全局超时**：整个 collect 阶段包装在 `tokio::time::timeout(global_timeout, all_collect_futures)` 中。超时后尚未完成的 task 被取消，其临时文件被丢弃（未 rename）。已完成的容器输出的临时文件已 rename 为最终文件。未完成的 task 在 manifest 中标记为 `timed_out`。所有采集结束后统一清理残留的 `.tmp` 文件。
+3. **全局超时**：整个 collect 阶段包装在 `tokio::time::timeout(global_timeout, all_collect_futures)` 中。超时后尚未完成的 task 被取消，其临时文件随 `NamedTempFile` drop 自动删除。已完成的容器输出的临时文件已 `persist()` 为最终文件。未完成的 task 在 manifest 中标记为 `timed_out`。
 
-4. **选采调度**：`required == false` 的 Collector 在所有 `required` 项完成后，若全局时间和文件大小预算仍有余量，按注册顺序逐个启动。选采项不计入全局完整性判断。
+4. **选采调度**：若未来引入可选 collector，在所有必采项完成后，若全局时间和文件大小预算仍有余量，按注册顺序逐个启动。选采项不计入全局完整性判断。
 
 5. **浓缩阶段（串行）**：所有采集完成后，遍历已有输出，计算 `summary.json` 指标，写入 `manifest.json`。
 
@@ -159,22 +159,22 @@ impl OutputDir {
     pub async fn create(root: &Path) -> Result<Self>;
 
     /// 打开一个 JSON 文件写入器。collector 先序列化到内存 buffer；
-    /// 若 buffer 未超 64 MiB，写入临时文件并 rename 为最终文件名；
+    /// 若 buffer 未超 64 MiB，写入 tempfile 并 persist 为最终文件名；
     /// 若超限，丢弃 buffer，记录为 truncated，不产生文件。
-    pub async fn json_writer(&self, filename: &str) -> Result<JsonWriter>;
+    pub fn json_writer(&self, filename: &str) -> Result<JsonWriter>;
 
     /// 打开一个 JSONL 流式写入器。每行独立 JSON 对象。
-    /// 内部以临时文件写入，完成后 rename。写入过程中追踪字节数，
-    /// 达到 64 MiB 时写入截断标记行（合法的 JSONL），停止接受后续行。
-    pub async fn jsonl_writer(&self, filename: &str) -> Result<JsonlWriter>;
+    /// 内部以 NamedTempFile 写入，完成后 persist。写入过程中追踪字节数，
+    /// 达到 64 MiB 时写入截断标记行，停止接受后续行。
+    pub fn jsonl_writer(&self, filename: &str) -> Result<JsonlWriter>;
 
-    /// 打开一个文本写入器。临时文件写入，完成后 rename。
+    /// 打开一个文本写入器。NamedTempFile 写入，完成后 persist。
     /// 字节达到上限时截断，保留已写入内容。
-    pub async fn text_writer(&self, filename: &str) -> Result<TextWriter>;
+    pub fn text_writer(&self, filename: &str) -> Result<TextWriter>;
 }
 ```
 
-所有 Writer 内部使用临时文件模式：写入期间数据进入 `{filename}.tmp`，`Writer` 被 drop 或显式 `commit()` 时 atomically rename 为 `{filename}`。若超时取消导致 Writer 被 drop 而未 commit，临时文件在后续清理中被删除——保证最终文件名不存在半截文件。
+所有 Writer 内部使用 `tempfile::NamedTempFile`：写入期间数据进入输出目录内的临时文件，`Writer` 的 `commit()` 或 `finish()` 时 `persist()` 原子重命名为目标文件名。若超时取消或 panic 导致 Writer drop 而未 commit/finish，`NamedTempFile::Drop` 自动删除临时文件——保证最终文件名不存在半截文件。`cleanup_tmp()` 作为额外保障清理任何遗留文件。
 
 ## RT 大类与接口映射
 
@@ -208,7 +208,7 @@ impl OutputDir {
 
 ### 阶段 A：骨架与 procfs 通路
 
-**内容**：项目骨架（`main.rs`、`probe.rs`、`output.rs`、`manifest.rs`、`summary.rs`、`archive.rs`）+ RT-01、RT-05、RT-06、RT-04。
+**内容**：项目骨架（`main.rs`、`error.rs`、`output.rs`）+ RT-01、RT-05、RT-06、RT-04。（`manifest.rs`、`summary.rs`、`archive.rs` 逻辑当前内联于 `main.rs`，后续按模块拆分。）
 
 **优先级理由**：
 
@@ -245,7 +245,7 @@ impl OutputDir {
 **优先级理由**：
 
 - 全部是 procfs/sysfs 读取，技术零风险，工程上纯铺量。
-- 有阶段 A~C 积累的 `Collector` trait 模板和输出模块工具，每个大类 100~200 行即可完成。
+- 有阶段 A~C 积累的 `CollectionTask` enum 模板和输出模块工具，每个大类 100~200 行即可完成。
 
 ### 阶段 E：测试体系与补全
 

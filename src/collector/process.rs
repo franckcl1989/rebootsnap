@@ -20,31 +20,49 @@ struct ProcessRecord {
 
 impl Process {
     pub async fn probe(&self) -> ProbeOutcome {
-        if !std::path::Path::new("/proc/1/status").exists() {
-            return ProbeOutcome {
+        if std::path::Path::new("/proc/1/status").exists() {
+            ProbeOutcome {
+                available: true,
+                degraded: Vec::new(),
+                reason: None,
+            }
+        } else {
+            ProbeOutcome {
                 available: false,
                 degraded: Vec::new(),
                 reason: Some("/proc not accessible".into()),
-            };
-        }
-        ProbeOutcome {
-            available: true,
-            degraded: Vec::new(),
-            reason: None,
+            }
         }
     }
 
     pub async fn collect(
         &self,
         output: &OutputDir,
-        _probe: &ProbeOutcome,
+        probe: &ProbeOutcome,
     ) -> CollectionOutcome {
+        if !probe.available {
+            return CollectionOutcome {
+                status: CollectionStatus::Failed {
+                    reason: probe.reason.clone().unwrap_or_default(),
+                },
+                duration: Default::default(),
+                file_size: 0,
+                items_total: None,
+                items_collected: None,
+                mem_total_kb: None,
+                mem_available_kb: None,
+                hostname: None,
+                kernel_version: None,
+                boot_id: None,
+                uptime_seconds: None,
+            };
+        }
         let start = Instant::now();
 
         let entries: Vec<_> = procfs::process::all_processes()
             .map(|iter| iter.flatten().collect())
             .unwrap_or_default();
-        let mut total: u64 = entries.len() as u64;
+        let total: u64 = entries.len() as u64;
 
         let Ok(mut writer) = output.jsonl_writer("processes.jsonl") else {
             return CollectionOutcome {
@@ -64,6 +82,7 @@ impl Process {
             };
         };
 
+        let mut write_error: Option<String> = None;
         for proc in &entries {
             let pid = Some(proc.pid);
             let stat = proc.stat().ok();
@@ -90,18 +109,20 @@ impl Process {
                 cmdline,
             };
 
-            if writer.write_line(&record).await.is_err() {
-                total = writer.item_count();
+            if let Err(e) = writer.write_line(&record).await {
+                write_error = Some(e);
                 break;
             }
         }
 
         let is_truncated = writer.is_truncated();
-        let items = writer.item_count();
+        let collected = writer.item_count();
 
-        let (size, _items) = writer.finish().await;
+        let (size, _) = writer.finish().await;
 
-        let status = if is_truncated {
+        let status = if let Some(e) = write_error {
+            CollectionStatus::Failed { reason: e }
+        } else if is_truncated {
             let reason = if size >= 64 * 1024 * 1024 {
                 "size_limit"
             } else {
@@ -119,7 +140,7 @@ impl Process {
             duration: start.elapsed(),
             file_size: size,
             items_total: Some(total),
-            items_collected: Some(items),
+            items_collected: Some(collected),
             mem_total_kb: None,
             mem_available_kb: None,
             hostname: None,

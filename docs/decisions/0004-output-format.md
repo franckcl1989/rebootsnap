@@ -48,7 +48,7 @@ rebootsnap-{timestamp}/
   caches.json         # RT-21
 ```
 
-最终目录用 `tar czf rebootsnap-{timestamp}.tar.gz rebootsnap-{timestamp}/` 打包为单文件分发。原始目录在打包后清理。
+最终目录用 `tar` + `flate2` crate 打包为 `rebootsnap-{timestamp}.tar.gz` 单文件分发（非 shell 命令调用）。原始目录在打包后清理。
 
 ### 三种文件格式
 

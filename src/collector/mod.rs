@@ -13,6 +13,34 @@ pub struct ProbeOutcome {
     pub reason: Option<String>,
 }
 
+fn probe_files(files: &[&str], all_missing_msg: &str) -> ProbeOutcome {
+    let degraded: Vec<String> = files
+        .iter()
+        .filter(|f| !std::path::Path::new(f).exists())
+        .map(|s| s.to_string())
+        .collect();
+
+    if degraded.len() == files.len() {
+        ProbeOutcome {
+            available: false,
+            degraded: Vec::new(),
+            reason: Some(all_missing_msg.into()),
+        }
+    } else if degraded.is_empty() {
+        ProbeOutcome {
+            available: true,
+            degraded: Vec::new(),
+            reason: None,
+        }
+    } else {
+        ProbeOutcome {
+            available: true,
+            degraded,
+            reason: None,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct CollectionOutcome {
     pub status: CollectionStatus,

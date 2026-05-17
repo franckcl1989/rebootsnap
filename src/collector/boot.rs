@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::time::Instant;
 
-use crate::collector::{CollectionOutcome, CollectionStatus, ProbeOutcome};
+use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::output::OutputDir;
 
 pub struct Boot;
@@ -16,59 +16,53 @@ struct BootRecord {
     hostname: Option<String>,
 }
 
+const FILES: &[&str] = &[
+    "/proc/sys/kernel/random/boot_id",
+    "/proc/uptime",
+    "/proc/version",
+    "/proc/cmdline",
+    "/proc/sys/kernel/hostname",
+];
+
 impl Boot {
     pub async fn probe(&self) -> ProbeOutcome {
-        let files = [
-            "/proc/sys/kernel/random/boot_id",
-            "/proc/uptime",
-            "/proc/version",
-            "/proc/cmdline",
-            "/proc/sys/kernel/hostname",
-        ];
-        let degraded: Vec<String> = files
-            .iter()
-            .filter(|f| std::path::Path::new(f).exists() && std::fs::read_to_string(f).is_err())
-            .map(|s| s.to_string())
-            .collect();
-
-        if degraded.len() == files.len() {
-            ProbeOutcome {
-                available: false,
-                degraded: Vec::new(),
-                reason: Some("all boot identity files unreadable".into()),
-            }
-        } else if degraded.is_empty() {
-            ProbeOutcome {
-                available: true,
-                degraded: Vec::new(),
-                reason: None,
-            }
-        } else {
-            ProbeOutcome {
-                available: true,
-                degraded,
-                reason: None,
-            }
-        }
+        probe_files(FILES, "all boot identity files missing")
     }
 
     pub async fn collect(
         &self,
         output: &OutputDir,
-        _probe: &ProbeOutcome,
+        probe: &ProbeOutcome,
     ) -> CollectionOutcome {
+        if !probe.available {
+            return CollectionOutcome {
+                status: CollectionStatus::Failed {
+                    reason: probe.reason.clone().unwrap_or_default(),
+                },
+                duration: Default::default(),
+                file_size: 0,
+                items_total: None,
+                items_collected: None,
+                mem_total_kb: None,
+                mem_available_kb: None,
+                hostname: None,
+                kernel_version: None,
+                boot_id: None,
+                uptime_seconds: None,
+            };
+        }
         let start = Instant::now();
 
         fn read_trimmed(path: &str) -> Option<String> {
             std::fs::read_to_string(path).ok().map(|s| s.trim().to_string())
         }
 
-        let boot_id = read_trimmed("/proc/sys/kernel/random/boot_id");
-        let uptime = read_trimmed("/proc/uptime")
+        let boot_id = read_trimmed(FILES[0]);
+        let uptime = read_trimmed(FILES[1])
             .and_then(|s| s.split_whitespace().next()?.parse::<f64>().ok());
-        let kernel_version = read_trimmed("/proc/version");
-        let cmdline = read_trimmed("/proc/cmdline");
-        let hostname = read_trimmed("/proc/sys/kernel/hostname");
+        let kernel_version = read_trimmed(FILES[2]);
+        let cmdline = read_trimmed(FILES[3]);
+        let hostname = read_trimmed(FILES[4]);
 
         let record = BootRecord {
             collection: "RT-01",
@@ -79,10 +73,51 @@ impl Boot {
             hostname: hostname.clone(),
         };
 
-        let outcome = |status: CollectionStatus| CollectionOutcome {
-            status,
+        let Ok(writer) = output.json_writer("boot.json") else {
+            return CollectionOutcome {
+                status: CollectionStatus::Failed {
+                    reason: "json writer creation failed".into(),
+                },
+                duration: start.elapsed(),
+                file_size: 0,
+                items_total: None,
+                items_collected: None,
+                mem_total_kb: None,
+                mem_available_kb: None,
+                hostname,
+                kernel_version,
+                boot_id,
+                uptime_seconds: uptime.map(|u| u as u64),
+            };
+        };
+        let Ok((size, _)) = writer.commit(&record).await else {
+            return CollectionOutcome {
+                status: CollectionStatus::Failed {
+                    reason: "json write failed".into(),
+                },
+                duration: start.elapsed(),
+                file_size: 0,
+                items_total: None,
+                items_collected: None,
+                mem_total_kb: None,
+                mem_available_kb: None,
+                hostname,
+                kernel_version,
+                boot_id,
+                uptime_seconds: uptime.map(|u| u as u64),
+            };
+        };
+
+        CollectionOutcome {
+            status: if probe.degraded.is_empty() {
+                CollectionStatus::Ok
+            } else {
+                CollectionStatus::Degraded {
+                    missing: probe.degraded.clone(),
+                }
+            },
             duration: start.elapsed(),
-            file_size: 0,
+            file_size: size,
             items_total: None,
             items_collected: None,
             mem_total_kb: None,
@@ -91,21 +126,6 @@ impl Boot {
             kernel_version,
             boot_id,
             uptime_seconds: uptime.map(|u| u as u64),
-        };
-
-        let Ok(writer) = output.json_writer("boot.json") else {
-            return outcome(CollectionStatus::Failed {
-                reason: "json writer creation failed".into(),
-            });
-        };
-        let Ok((size, _)) = writer.commit(&record).await else {
-            return outcome(CollectionStatus::Failed {
-                reason: "json write failed".into(),
-            });
-        };
-
-        let mut o = outcome(CollectionStatus::Ok);
-        o.file_size = size;
-        o
+        }
     }
 }

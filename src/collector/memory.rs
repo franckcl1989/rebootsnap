@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::time::Instant;
 
-use crate::collector::{CollectionOutcome, CollectionStatus, ProbeOutcome};
+use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::output::OutputDir;
 
 pub struct Memory;
@@ -21,46 +21,40 @@ struct MemoryRecord {
     zoneinfo: Option<String>,
 }
 
+const FILES: &[&str] = &[
+    "/proc/meminfo",
+    "/proc/pressure/memory",
+    "/proc/vmstat",
+    "/proc/zoneinfo",
+];
+
 impl Memory {
     pub async fn probe(&self) -> ProbeOutcome {
-        let files = [
-            "/proc/meminfo",
-            "/proc/pressure/memory",
-            "/proc/vmstat",
-            "/proc/zoneinfo",
-        ];
-        let degraded: Vec<String> = files
-            .iter()
-            .filter(|f| !std::path::Path::new(f).exists())
-            .map(|s| s.to_string())
-            .collect();
-
-        if degraded.len() == files.len() {
-            ProbeOutcome {
-                available: false,
-                degraded: Vec::new(),
-                reason: Some("all memory files missing".into()),
-            }
-        } else if degraded.is_empty() {
-            ProbeOutcome {
-                available: true,
-                degraded: Vec::new(),
-                reason: None,
-            }
-        } else {
-            ProbeOutcome {
-                available: true,
-                degraded,
-                reason: None,
-            }
-        }
+        probe_files(FILES, "all memory files missing")
     }
 
     pub async fn collect(
         &self,
         output: &OutputDir,
-        _probe: &ProbeOutcome,
+        probe: &ProbeOutcome,
     ) -> CollectionOutcome {
+        if !probe.available {
+            return CollectionOutcome {
+                status: CollectionStatus::Failed {
+                    reason: probe.reason.clone().unwrap_or_default(),
+                },
+                duration: Default::default(),
+                file_size: 0,
+                items_total: None,
+                items_collected: None,
+                mem_total_kb: None,
+                mem_available_kb: None,
+                hostname: None,
+                kernel_version: None,
+                boot_id: None,
+                uptime_seconds: None,
+            };
+        }
         let start = Instant::now();
 
         fn read_raw(path: &str) -> Option<String> {
@@ -102,10 +96,51 @@ impl Memory {
             zoneinfo: read_raw("/proc/zoneinfo"),
         };
 
-        let outcome = |status: CollectionStatus| CollectionOutcome {
-            status,
+        let Ok(writer) = output.json_writer("memory.json") else {
+            return CollectionOutcome {
+                status: CollectionStatus::Failed {
+                    reason: "json writer creation failed".into(),
+                },
+                duration: start.elapsed(),
+                file_size: 0,
+                items_total: None,
+                items_collected: None,
+                mem_total_kb,
+                mem_available_kb,
+                hostname: None,
+                kernel_version: None,
+                boot_id: None,
+                uptime_seconds: None,
+            };
+        };
+        let Ok((size, _)) = writer.commit(&record).await else {
+            return CollectionOutcome {
+                status: CollectionStatus::Failed {
+                    reason: "json write failed".into(),
+                },
+                duration: start.elapsed(),
+                file_size: 0,
+                items_total: None,
+                items_collected: None,
+                mem_total_kb,
+                mem_available_kb,
+                hostname: None,
+                kernel_version: None,
+                boot_id: None,
+                uptime_seconds: None,
+            };
+        };
+
+        CollectionOutcome {
+            status: if probe.degraded.is_empty() {
+                CollectionStatus::Ok
+            } else {
+                CollectionStatus::Degraded {
+                    missing: probe.degraded.clone(),
+                }
+            },
             duration: start.elapsed(),
-            file_size: 0,
+            file_size: size,
             items_total: None,
             items_collected: None,
             mem_total_kb,
@@ -114,21 +149,6 @@ impl Memory {
             kernel_version: None,
             boot_id: None,
             uptime_seconds: None,
-        };
-
-        let Ok(writer) = output.json_writer("memory.json") else {
-            return outcome(CollectionStatus::Failed {
-                reason: "json writer creation failed".into(),
-            });
-        };
-        let Ok((size, _)) = writer.commit(&record).await else {
-            return outcome(CollectionStatus::Failed {
-                reason: "json write failed".into(),
-            });
-        };
-
-        let mut o = outcome(CollectionStatus::Ok);
-        o.file_size = size;
-        o
+        }
     }
 }

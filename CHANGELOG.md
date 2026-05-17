@@ -4,6 +4,34 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-17 - 审核修复：probe 结果落地、文档漂移消除
+
+- **类型**：修复
+- **范围**：全部 `src/collector/*.rs`、`docs/collector-architecture.md`、`docs/decisions/0003-*.md`、`docs/decisions/0004-*.md`、`CHANGELOG.md`
+- **提交信息**：`fix(collector): use probe outcome in collect, fix doc drift`
+
+### 变更内容
+
+- 所有 collector 的 `collect()` 现在检查 probe 结果：`!probe.available` 时立即返回 Failed；`probe.degraded` 非空时标记 Degraded。
+- process.rs 修复错误处理：`write_line` 错误不再覆盖 `items_total`，正确区分截断/写入错误。
+- 提取公共 `probe_files()` 辅助函数，消除三份重复的 probe 逻辑。
+- 统一 boot.rs probe 深度：从"读文件检查可读性"改为与 cpu.rs/memory.rs 一致的"仅检查文件存在"。
+- 修复 `docs/collector-architecture.md` 6 处漂移：`ProbeResult`→`ProbeOutcome`、`required` 概念消除、`async fn json_writer`→同步、`{filename}.tmp`→`NamedTempFile`、Phase A 文件清单、`Collector` trait→`CollectionTask` enum。
+- 修复 `docs/decisions/0003-*.md` 平台限定要求与实际 `[dependencies]` 段一致。
+- 修复 `docs/decisions/0004-*.md` tar 命令行引用改为 crate 描述。
+
+### 设计影响
+
+- `collect()` 必须检查 probe 结果并据此决定提前返回或标记 Degraded；`_probe` 前缀不可再使用。
+- 新增 collector 时，probe 阶段应使用 `probe_files()` 辅助函数，或手动构造 `ProbeOutcome` 并保证 `available`/`degraded` 语义正确。
+- 临时文件清理逻辑依赖 `NamedTempFile::Drop` 自动删除；`cleanup_tmp()` 仅作为 SIGKILL 遗留文件清理的兜底保障。
+
+### 验证
+
+- `cargo build` 编译通过（1 条预期 dead_code 警告）。
+- `cargo run --release -- /tmp` 运行成功，输出与修复前一致。
+- `scripts/verify.sh` exit 0。
+
 ## 2026-05-17 - Phase A 重构：enum dispatch、社区 crate 与 Rust 惯用法对齐
 
 - **类型**：重构
