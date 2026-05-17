@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::time::Instant;
 
 use crate::collector::{CollectionOutcome, CollectionStatus, ProbeOutcome};
+use crate::fs::FsRoots;
 use crate::output::OutputDir;
 
 pub struct Netdev;
@@ -45,17 +46,18 @@ const PROBE_FILES: &[&str] = &[
 ];
 
 impl Netdev {
-    pub async fn probe(&self) -> ProbeOutcome {
-        let has_ifs = match std::fs::read_dir(PROBE_DIR) {
+    pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
+        let has_ifs = match std::fs::read_dir(roots.resolve(PROBE_DIR)) {
             Ok(mut entries) => entries.next().is_some(),
             Err(_) => false,
         };
-        let file_result = crate::collector::probe_files(PROBE_FILES, "all net proc files missing");
+        let file_result = crate::collector::probe_files(roots, PROBE_FILES, "all net proc files missing");
         if !has_ifs && !file_result.available {
             return ProbeOutcome {
                 available: false,
                 degraded: Vec::new(),
                 reason: Some("net sysfs and proc files unavailable".into()),
+                roots: roots.clone(),
             };
         }
         let mut degraded: Vec<String> = if !has_ifs {
@@ -68,6 +70,7 @@ impl Netdev {
             available: true,
             degraded,
             reason: None,
+            roots: roots.clone(),
         }
     }
 
@@ -106,7 +109,7 @@ impl Netdev {
         }
 
         let mut interfaces = Vec::new();
-        if let Ok(dir) = std::fs::read_dir(PROBE_DIR) {
+        if let Ok(dir) = std::fs::read_dir(probe.roots.resolve(PROBE_DIR)) {
             for entry in dir.flatten() {
                 let path = entry.path();
                 let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
@@ -134,8 +137,8 @@ impl Netdev {
             }
         }
 
-        fn read_raw(path: &str) -> Option<String> {
-            std::fs::read_to_string(path).ok()
+        fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
+            std::fs::read_to_string(roots.resolve(path)).ok()
         }
 
         let iface_count = interfaces.len() as u64;
@@ -143,10 +146,10 @@ impl Netdev {
         let record = NetdevRecord {
             collection: "RT-11",
             interfaces,
-            routes_v4: read_raw("/proc/net/route"),
-            routes_v6: read_raw("/proc/net/ipv6_route"),
-            arp: read_raw("/proc/net/arp"),
-            netstat: read_raw("/proc/net/netstat"),
+            routes_v4: read_raw(&probe.roots, "/proc/net/route"),
+            routes_v6: read_raw(&probe.roots, "/proc/net/ipv6_route"),
+            arp: read_raw(&probe.roots, "/proc/net/arp"),
+            netstat: read_raw(&probe.roots, "/proc/net/netstat"),
         };
 
         let writer = match output.json_writer("netdev.json") {

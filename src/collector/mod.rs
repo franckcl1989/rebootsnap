@@ -22,6 +22,7 @@ pub mod systemd;
 pub mod time;
 pub mod tmpfs;
 
+use crate::fs::FsRoots;
 use crate::output::OutputDir;
 
 #[derive(Debug, Clone)]
@@ -29,12 +30,13 @@ pub struct ProbeOutcome {
     pub available: bool,
     pub degraded: Vec<String>,
     pub reason: Option<String>,
+    pub roots: FsRoots,
 }
 
-pub fn probe_files(files: &[&str], all_missing_msg: &str) -> ProbeOutcome {
+pub fn probe_files(roots: &FsRoots, files: &[&str], all_missing_msg: &str) -> ProbeOutcome {
     let degraded: Vec<String> = files
         .iter()
-        .filter(|f| !std::path::Path::new(f).exists())
+        .filter(|f| !roots.exists(f))
         .map(|s| s.to_string())
         .collect();
 
@@ -43,18 +45,21 @@ pub fn probe_files(files: &[&str], all_missing_msg: &str) -> ProbeOutcome {
             available: false,
             degraded: Vec::new(),
             reason: Some(all_missing_msg.into()),
+            roots: roots.clone(),
         }
     } else if degraded.is_empty() {
         ProbeOutcome {
             available: true,
             degraded: Vec::new(),
             reason: None,
+            roots: roots.clone(),
         }
     } else {
         ProbeOutcome {
             available: true,
             degraded,
             reason: None,
+            roots: roots.clone(),
         }
     }
 }
@@ -175,29 +180,29 @@ impl CollectionTask {
         }
     }
 
-    pub async fn probe(&self) -> ProbeOutcome {
+    pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
         match self {
-            CollectionTask::Block(c) => c.probe().await,
-            CollectionTask::Boot(c) => c.probe().await,
-            CollectionTask::Cache(c) => c.probe().await,
-            CollectionTask::Cpu(c) => c.probe().await,
-            CollectionTask::Device(c) => c.probe().await,
-            CollectionTask::Events(c) => c.probe().await,
-            CollectionTask::Fd(c) => c.probe().await,
-            CollectionTask::IpcNsCg(c) => c.probe().await,
-            CollectionTask::Kernel(c) => c.probe().await,
-            CollectionTask::Memory(c) => c.probe().await,
-            CollectionTask::Mount(c) => c.probe().await,
-            CollectionTask::Netdev(c) => c.probe().await,
-            CollectionTask::Netfilter(c) => c.probe().await,
-            CollectionTask::Power(c) => c.probe().await,
-            CollectionTask::Process(c) => c.probe().await,
-            CollectionTask::Security(c) => c.probe().await,
-            CollectionTask::Session(c) => c.probe().await,
-            CollectionTask::Socket(c) => c.probe().await,
-            CollectionTask::Systemd(c) => c.probe().await,
-            CollectionTask::Time(c) => c.probe().await,
-            CollectionTask::Tmpfs(c) => c.probe().await,
+            CollectionTask::Block(c) => c.probe(roots).await,
+            CollectionTask::Boot(c) => c.probe(roots).await,
+            CollectionTask::Cache(c) => c.probe(roots).await,
+            CollectionTask::Cpu(c) => c.probe(roots).await,
+            CollectionTask::Device(c) => c.probe(roots).await,
+            CollectionTask::Events(c) => c.probe(roots).await,
+            CollectionTask::Fd(c) => c.probe(roots).await,
+            CollectionTask::IpcNsCg(c) => c.probe(roots).await,
+            CollectionTask::Kernel(c) => c.probe(roots).await,
+            CollectionTask::Memory(c) => c.probe(roots).await,
+            CollectionTask::Mount(c) => c.probe(roots).await,
+            CollectionTask::Netdev(c) => c.probe(roots).await,
+            CollectionTask::Netfilter(c) => c.probe(roots).await,
+            CollectionTask::Power(c) => c.probe(roots).await,
+            CollectionTask::Process(c) => c.probe(roots).await,
+            CollectionTask::Security(c) => c.probe(roots).await,
+            CollectionTask::Session(c) => c.probe(roots).await,
+            CollectionTask::Socket(c) => c.probe(roots).await,
+            CollectionTask::Systemd(c) => c.probe(roots).await,
+            CollectionTask::Time(c) => c.probe(roots).await,
+            CollectionTask::Tmpfs(c) => c.probe(roots).await,
         }
     }
 

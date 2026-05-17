@@ -3,6 +3,7 @@ use std::time::Instant;
 use zbus::zvariant::OwnedObjectPath;
 
 use crate::collector::{CollectionOutcome, CollectionStatus, ProbeOutcome};
+use crate::fs::FsRoots;
 use crate::output::OutputDir;
 
 pub struct Systemd;
@@ -72,7 +73,7 @@ type JobRow = (
 type InhibitorRow = (String, String, String, String, u32, u32);
 
 impl Systemd {
-    pub async fn probe(&self) -> ProbeOutcome {
+    pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
         let conn = match zbus::Connection::system().await {
             Ok(c) => c,
             Err(e) => {
@@ -80,6 +81,7 @@ impl Systemd {
                     available: false,
                     degraded: Vec::new(),
                     reason: Some(format!("D-Bus system bus unavailable: {}", e)),
+                    roots: roots.clone(),
                 };
             }
         };
@@ -103,12 +105,14 @@ impl Systemd {
                         available: true,
                         degraded: Vec::new(),
                         reason: None,
+                        roots: roots.clone(),
                     }
                 } else {
                     ProbeOutcome {
                         available: false,
                         degraded: Vec::new(),
                         reason: Some("org.freedesktop.systemd1 not on system bus".into()),
+                        roots: roots.clone(),
                     }
                 }
             }
@@ -116,6 +120,7 @@ impl Systemd {
                 available: false,
                 degraded: Vec::new(),
                 reason: Some(format!("D-Bus ListNames failed: {}", e)),
+                roots: roots.clone(),
             },
         }
     }

@@ -1,4 +1,4 @@
-use std::fs;
+use std::fs as std_fs;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::time::Instant;
@@ -8,6 +8,7 @@ use serde::Serialize;
 
 mod collector;
 mod error;
+mod fs;
 mod output;
 
 use collector::{
@@ -16,6 +17,7 @@ use collector::{
     CollectionStatus, CollectionTask, ProbeOutcome,
 };
 use error::ArchiveError;
+use crate::fs::FsRoots;
 use output::OutputDir;
 
 const GLOBAL_TIMEOUT_SECS: u64 = 300;
@@ -100,7 +102,7 @@ fn outcome_status(status: &CollectionStatus) -> &'static str {
 }
 
 fn loadavg() -> (Option<f64>, Option<f64>, Option<f64>) {
-    let raw = fs::read_to_string("/proc/loadavg").unwrap_or_default();
+    let raw = std_fs::read_to_string("/proc/loadavg").unwrap_or_default();
     let parts: Vec<&str> = raw.split_whitespace().collect();
     (
         parts.first().and_then(|s| s.parse().ok()),
@@ -140,11 +142,11 @@ fn create_tar_gz(
     dir_name: &str,
     dest_path: &Path,
 ) -> Result<(), ArchiveError> {
-    let gz_file = fs::File::create(dest_path).map_err(ArchiveError::Io)?;
+    let gz_file = std_fs::File::create(dest_path).map_err(ArchiveError::Io)?;
     let gz_encoder = flate2::write::GzEncoder::new(gz_file, flate2::Compression::default());
     let mut tar_builder = tar::Builder::new(gz_encoder);
 
-    for entry in fs::read_dir(src_dir).map_err(ArchiveError::Io)? {
+    for entry in std_fs::read_dir(src_dir).map_err(ArchiveError::Io)? {
         let entry = entry.map_err(ArchiveError::Io)?;
         let path = entry.path();
         if !path.is_file() {
@@ -207,6 +209,8 @@ async fn main() {
 
     let tasks = all_tasks();
 
+    let roots = FsRoots::default();
+
     let task_infos: Vec<(&str, &str, std::time::Duration)> = tasks
         .iter()
         .map(|t| (t.id(), t.filename(), t.item_timeout()))
@@ -214,7 +218,7 @@ async fn main() {
 
     let mut probe_pairs: Vec<(&str, ProbeOutcome)> = Vec::with_capacity(tasks.len());
     for task in &tasks {
-        probe_pairs.push((task.id(), task.probe().await));
+        probe_pairs.push((task.id(), task.probe(&roots).await));
     }
     let probe_map: std::collections::HashMap<&str, &ProbeOutcome> = probe_pairs
         .iter()
@@ -329,7 +333,7 @@ async fn main() {
 
     let summary_bytes = serde_json::to_vec_pretty(&summary).unwrap_or_default();
     let summary_path = manifest_dir.join("summary.json");
-    if let Err(e) = fs::write(&summary_path, &summary_bytes) {
+    if let Err(e) = std_fs::write(&summary_path, &summary_bytes) {
         tracing::error!("cannot write summary.json: {}", e);
     }
 
@@ -384,7 +388,7 @@ async fn main() {
 
     let manifest_bytes = serde_json::to_vec_pretty(&manifest).unwrap_or_default();
     let manifest_path = manifest_dir.join("manifest.json");
-    if let Err(e) = fs::write(&manifest_path, &manifest_bytes) {
+    if let Err(e) = std_fs::write(&manifest_path, &manifest_bytes) {
         tracing::error!("cannot write manifest.json: {}", e);
     }
 
@@ -406,7 +410,7 @@ async fn main() {
 
     match tar_result {
         Ok(Ok(())) => {
-            let _ = fs::remove_dir_all(&manifest_dir);
+            let _ = std_fs::remove_dir_all(&manifest_dir);
             tracing::info!("{}", tar_path.display());
         }
         Ok(Err(e)) => {

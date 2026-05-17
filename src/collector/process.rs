@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::time::Instant;
 
 use crate::collector::{CollectionOutcome, CollectionStatus, ProbeOutcome};
+use crate::fs::FsRoots;
 use crate::output::{OutputDir, SIZE_LIMIT};
 
 pub struct Process;
@@ -19,18 +20,20 @@ struct ProcessRecord {
 }
 
 impl Process {
-    pub async fn probe(&self) -> ProbeOutcome {
+    pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
         if std::path::Path::new("/proc/1/status").exists() {
             ProbeOutcome {
                 available: true,
                 degraded: Vec::new(),
                 reason: None,
+                roots: roots.clone(),
             }
         } else {
             ProbeOutcome {
                 available: false,
                 degraded: Vec::new(),
                 reason: Some("/proc not accessible".into()),
+                roots: roots.clone(),
             }
         }
     }

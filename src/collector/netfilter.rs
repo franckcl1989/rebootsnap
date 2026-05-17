@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::time::Instant;
 
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
+use crate::fs::FsRoots;
 use crate::output::OutputDir;
 
 pub struct Netfilter;
@@ -25,8 +26,8 @@ const FILES: &[&str] = &[
 ];
 
 impl Netfilter {
-    pub async fn probe(&self) -> ProbeOutcome {
-        probe_files(FILES, "all netfilter files missing")
+    pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
+        probe_files(roots, FILES, "all netfilter files missing")
     }
 
     pub async fn collect(
@@ -53,17 +54,17 @@ impl Netfilter {
         }
         let start = Instant::now();
 
-        fn read_raw(path: &str) -> Option<String> {
-            std::fs::read_to_string(path).ok()
+        fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
+            std::fs::read_to_string(roots.resolve(path)).ok()
         }
 
         let record = NetfilterRecord {
             collection: "RT-13",
-            conntrack: read_raw(FILES[0]),
-            conntrack_stats: read_raw(FILES[1]),
-            nf_conntrack_max: read_raw(FILES[2]),
-            nf_tables_names: read_raw(FILES[3]),
-            xfrm_stat: read_raw(FILES[4]),
+            conntrack: read_raw(&probe.roots, FILES[0]),
+            conntrack_stats: read_raw(&probe.roots, FILES[1]),
+            nf_conntrack_max: read_raw(&probe.roots, FILES[2]),
+            nf_tables_names: read_raw(&probe.roots, FILES[3]),
+            xfrm_stat: read_raw(&probe.roots, FILES[4]),
         };
 
         let writer = match output.json_writer("netfilter.json") {

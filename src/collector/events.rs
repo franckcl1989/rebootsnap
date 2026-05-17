@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::time::Instant;
 
 use crate::collector::{CollectionOutcome, CollectionStatus, ProbeOutcome};
+use crate::fs::FsRoots;
 use crate::output::OutputDir;
 
 pub struct Events;
@@ -17,8 +18,8 @@ const FILES: &[&str] = &["/proc/sys/kernel/printk"];
 const KMSG_PATH: &str = "/dev/kmsg";
 
 impl Events {
-    pub async fn probe(&self) -> ProbeOutcome {
-        let mut probe = crate::collector::probe_files(FILES, "all events files missing");
+    pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
+        let mut probe = crate::collector::probe_files(roots, FILES, "all events files missing");
         let kmsg_ok = std::fs::File::open(KMSG_PATH).is_ok();
         if !kmsg_ok {
             if probe.available {
@@ -56,7 +57,7 @@ impl Events {
         }
         let start = Instant::now();
 
-        let dmesg_raw = std::fs::read_to_string(KMSG_PATH).ok();
+        let dmesg_raw = std::fs::read_to_string(probe.roots.resolve(KMSG_PATH)).ok();
         let dmesg_bytes: Vec<u8> = {
             let marker = EventsMarker {
                 collection: "RT-20",

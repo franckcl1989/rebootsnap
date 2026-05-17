@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::time::Instant;
 
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
+use crate::fs::FsRoots;
 use crate::output::OutputDir;
 
 pub struct Block;
@@ -21,8 +22,8 @@ const FILES: &[&str] = &[
 ];
 
 impl Block {
-    pub async fn probe(&self) -> ProbeOutcome {
-        probe_files(FILES, "all block files missing")
+    pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
+        probe_files(roots, FILES, "all block files missing")
     }
 
     pub async fn collect(
@@ -49,15 +50,15 @@ impl Block {
         }
         let start = Instant::now();
 
-        fn read_raw(path: &str) -> Option<String> {
-            std::fs::read_to_string(path).ok()
+        fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
+            std::fs::read_to_string(roots.resolve(path)).ok()
         }
 
         let record = BlockRecord {
             collection: "RT-10",
-            diskstats: read_raw(FILES[0]),
-            partitions: read_raw(FILES[1]),
-            pressure_io: read_raw(FILES[2]),
+            diskstats: read_raw(&probe.roots, FILES[0]),
+            partitions: read_raw(&probe.roots, FILES[1]),
+            pressure_io: read_raw(&probe.roots, FILES[2]),
         };
 
         let writer = match output.json_writer("block.json") {

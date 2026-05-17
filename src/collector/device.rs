@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::time::Instant;
 
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
+use crate::fs::FsRoots;
 use crate::output::OutputDir;
 
 pub struct Device;
@@ -16,8 +17,8 @@ struct DeviceRecord {
 const FILES: &[&str] = &["/proc/devices", "/proc/iomem"];
 
 impl Device {
-    pub async fn probe(&self) -> ProbeOutcome {
-        probe_files(FILES, "all device files missing")
+    pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
+        probe_files(roots, FILES, "all device files missing")
     }
 
     pub async fn collect(
@@ -44,14 +45,14 @@ impl Device {
         }
         let start = Instant::now();
 
-        fn read_raw(path: &str) -> Option<String> {
-            std::fs::read_to_string(path).ok()
+        fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
+            std::fs::read_to_string(roots.resolve(path)).ok()
         }
 
         let record = DeviceRecord {
             collection: "RT-17",
-            devices: read_raw(FILES[0]),
-            iomem: read_raw(FILES[1]),
+            devices: read_raw(&probe.roots, FILES[0]),
+            iomem: read_raw(&probe.roots, FILES[1]),
         };
 
         let writer = match output.json_writer("devices.json") {

@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::time::Instant;
 
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
+use crate::fs::FsRoots;
 use crate::output::OutputDir;
 
 pub struct Mount;
@@ -23,8 +24,8 @@ const FILES: &[&str] = &[
 ];
 
 impl Mount {
-    pub async fn probe(&self) -> ProbeOutcome {
-        probe_files(FILES, "all mount files missing")
+    pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
+        probe_files(roots, FILES, "all mount files missing")
     }
 
     pub async fn collect(
@@ -51,16 +52,16 @@ impl Mount {
         }
         let start = Instant::now();
 
-        fn read_raw(path: &str) -> Option<String> {
-            std::fs::read_to_string(path).ok()
+        fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
+            std::fs::read_to_string(roots.resolve(path)).ok()
         }
 
         let record = MountRecord {
             collection: "RT-09",
-            mountinfo: read_raw(FILES[0]),
-            mounts: read_raw(FILES[1]),
-            mountstats: read_raw(FILES[2]),
-            filesystems: read_raw(FILES[3]),
+            mountinfo: read_raw(&probe.roots, FILES[0]),
+            mounts: read_raw(&probe.roots, FILES[1]),
+            mountstats: read_raw(&probe.roots, FILES[2]),
+            filesystems: read_raw(&probe.roots, FILES[3]),
         };
 
         let writer = match output.json_writer("mounts.json") {

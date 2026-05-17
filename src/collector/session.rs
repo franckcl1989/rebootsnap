@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::time::Instant;
 
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
+use crate::fs::FsRoots;
 use crate::output::OutputDir;
 
 pub struct Session;
@@ -17,8 +18,8 @@ struct SessionRecord {
 const FILES: &[&str] = &["/var/run/utmp", "/etc/passwd", "/etc/group"];
 
 impl Session {
-    pub async fn probe(&self) -> ProbeOutcome {
-        probe_files(FILES, "all session files missing")
+    pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
+        probe_files(roots, FILES, "all session files missing")
     }
 
     pub async fn collect(
@@ -45,12 +46,12 @@ impl Session {
         }
         let start = Instant::now();
 
-        fn read_size(path: &str) -> Option<u64> {
-            std::fs::metadata(path).ok().map(|m| m.len())
+        fn read_size(roots: &FsRoots, path: &str) -> Option<u64> {
+            std::fs::metadata(roots.resolve(path)).ok().map(|m| m.len())
         }
 
-        fn read_mtime(path: &str) -> Option<String> {
-            let m = std::fs::metadata(path).ok()?;
+        fn read_mtime(roots: &FsRoots, path: &str) -> Option<String> {
+            let m = std::fs::metadata(roots.resolve(path)).ok()?;
             let t = m.modified().ok()?;
             let secs = t.duration_since(std::time::UNIX_EPOCH).ok()?;
             Some(secs.as_secs().to_string())
@@ -58,9 +59,9 @@ impl Session {
 
         let record = SessionRecord {
             collection: "RT-15",
-            utmp_size: read_size(FILES[0]),
-            passwd_mtime: read_mtime(FILES[1]),
-            group_mtime: read_mtime(FILES[2]),
+            utmp_size: read_size(&probe.roots, FILES[0]),
+            passwd_mtime: read_mtime(&probe.roots, FILES[1]),
+            group_mtime: read_mtime(&probe.roots, FILES[2]),
         };
 
         let writer = match output.json_writer("sessions.json") {

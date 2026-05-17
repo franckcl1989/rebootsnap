@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::time::Instant;
 
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
+use crate::fs::FsRoots;
 use crate::output::OutputDir;
 
 pub struct Fd;
@@ -25,8 +26,8 @@ const FILES: &[&str] = &[
 ];
 
 impl Fd {
-    pub async fn probe(&self) -> ProbeOutcome {
-        probe_files(FILES, "all fd files missing")
+    pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
+        probe_files(roots, FILES, "all fd files missing")
     }
 
     pub async fn collect(
@@ -53,17 +54,17 @@ impl Fd {
         }
         let start = Instant::now();
 
-        fn read_raw(path: &str) -> Option<String> {
-            std::fs::read_to_string(path).ok()
+        fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
+            std::fs::read_to_string(roots.resolve(path)).ok()
         }
 
         let record = FdRecord {
             collection: "RT-07",
-            file_nr: read_raw(FILES[0]),
-            file_max: read_raw(FILES[1]),
-            inode_nr: read_raw(FILES[2]),
-            inode_max: read_raw(FILES[3]),
-            locks: read_raw(FILES[4]),
+            file_nr: read_raw(&probe.roots, FILES[0]),
+            file_max: read_raw(&probe.roots, FILES[1]),
+            inode_nr: read_raw(&probe.roots, FILES[2]),
+            inode_max: read_raw(&probe.roots, FILES[3]),
+            locks: read_raw(&probe.roots, FILES[4]),
         };
 
         let writer = match output.json_writer("fds.json") {

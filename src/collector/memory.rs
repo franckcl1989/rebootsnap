@@ -4,6 +4,7 @@ use std::time::Instant;
 use procfs::Current;
 
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
+use crate::fs::FsRoots;
 use crate::output::OutputDir;
 
 pub struct Memory;
@@ -31,8 +32,8 @@ const FILES: &[&str] = &[
 ];
 
 impl Memory {
-    pub async fn probe(&self) -> ProbeOutcome {
-        probe_files(FILES, "all memory files missing")
+    pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
+        probe_files(roots, FILES, "all memory files missing")
     }
 
     pub async fn collect(
@@ -59,8 +60,8 @@ impl Memory {
         }
         let start = Instant::now();
 
-        fn read_raw(path: &str) -> Option<String> {
-            std::fs::read_to_string(path).ok()
+        fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
+            std::fs::read_to_string(roots.resolve(path)).ok()
         }
 
         let pmi = procfs::Meminfo::current().ok();
@@ -70,7 +71,7 @@ impl Memory {
             .and_then(|m| m.mem_available.map(|v| (v / 1024) as i64));
 
         let mut entries: Vec<MeminfoEntry> = Vec::new();
-        if let Some(raw) = read_raw(FILES[0]) {
+        if let Some(raw) = read_raw(&probe.roots, FILES[0]) {
             for line in raw.lines() {
                 let Some((key, val)) = line.split_once(':') else {
                     continue;
@@ -90,9 +91,9 @@ impl Memory {
         let record = MemoryRecord {
             collection: "RT-06",
             meminfo: entries,
-            pressure_memory: read_raw(FILES[1]),
-            vmstat: read_raw(FILES[2]),
-            zoneinfo: read_raw(FILES[3]),
+            pressure_memory: read_raw(&probe.roots, FILES[1]),
+            vmstat: read_raw(&probe.roots, FILES[2]),
+            zoneinfo: read_raw(&probe.roots, FILES[3]),
         };
 
         let writer = match output.json_writer("memory.json") {

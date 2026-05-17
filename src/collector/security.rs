@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::time::Instant;
 
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
+use crate::fs::FsRoots;
 use crate::output::OutputDir;
 
 pub struct Security;
@@ -23,8 +24,8 @@ const FILES: &[&str] = &[
 ];
 
 impl Security {
-    pub async fn probe(&self) -> ProbeOutcome {
-        probe_files(FILES, "all security files missing")
+    pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
+        probe_files(roots, FILES, "all security files missing")
     }
 
     pub async fn collect(
@@ -51,16 +52,16 @@ impl Security {
         }
         let start = Instant::now();
 
-        fn read_raw(path: &str) -> Option<String> {
-            std::fs::read_to_string(path).ok()
+        fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
+            std::fs::read_to_string(roots.resolve(path)).ok()
         }
 
         let record = SecurityRecord {
             collection: "RT-16",
-            entropy_avail: read_raw(FILES[0]),
-            poolsize: read_raw(FILES[1]),
-            cap_last_cap: read_raw(FILES[2]),
-            fips_enabled: read_raw(FILES[3]),
+            entropy_avail: read_raw(&probe.roots, FILES[0]),
+            poolsize: read_raw(&probe.roots, FILES[1]),
+            cap_last_cap: read_raw(&probe.roots, FILES[2]),
+            fips_enabled: read_raw(&probe.roots, FILES[3]),
         };
 
         let writer = match output.json_writer("security.json") {

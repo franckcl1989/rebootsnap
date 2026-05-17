@@ -4,6 +4,32 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-17 - FsRoots 路径抽象：为 mock 测试引入文件系统路径重定向
+
+- **类型**：实现
+- **范围**：`src/fs.rs`、`src/collector/mod.rs`、全部 21 个 collector、`src/main.rs`
+- **提交信息**：`feat(fs): add FsRoots path indirection for mock testing support`
+
+### 变更内容
+
+- 新增 `src/fs.rs`：`FsRoots` struct，包含 `proc`、`sys`、`dev`、`etc`、`run` 五个 `PathBuf` 字段，以及 `resolve(path) -> PathBuf` 前缀映射方法
+- `ProbeOutcome` 新增 `roots: FsRoots` 字段，生产环境为 `FsRoots::default()`（映射到真实 `/proc`、`/sys`、`/dev` 等）
+- `probe_files()` 使用 `roots.exists(f)` 替代 `Path::new(f).exists()`，支持 mock 重定向
+- `CollectionTask::probe()` 签名新增 `roots: &FsRoots` 参数
+- 所有 21 个 collector 的 `collect()` 内部所有 `std::fs` 路径调用通过 `probe.roots.resolve(...)` 包装
+
+### 设计影响
+
+- 生产行为零变化：`FsRoots::default()` 将 `/proc/...` 映射回真实 `/proc/...`
+- 测试可注入 mock `FsRoots`（指向 `tempfile::TempDir`），实现全部 21 个 collector 的 fixture 测试
+- procfs crate（`process.rs`、`memory.rs`）不受 FsRoots 控制，mock 测试需单独处理
+
+### 验证
+
+- `cargo build --release` 编译通过（零 warning），`cargo clippy` 零 warning
+- `scripts/verify.sh` exit 0
+- `cargo run --release -- /tmp` 生成 22 文件 tar.gz，输出正确
+
 ## 2026-05-17 - 第三轮审计修复：文档 precision、dmesg 自描述、分隔符统一
 
 - **类型**：修复 / 文档
@@ -28,8 +54,6 @@
 - `cargo build --release` 编译通过（零 warning），`cargo clippy` 零 warning
 - `scripts/verify.sh` exit 0
 - dmesg.txt 首行为 `{"collection":"RT-20","source":"/dev/kmsg"}`（非 root 环境仅含标记行，预期行为）
-
----
 
 ## 2026-05-17 - 第二轮审计修复：probe 降级传播、架构表同步
 

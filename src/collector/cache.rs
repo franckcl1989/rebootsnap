@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::time::Instant;
 
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
+use crate::fs::FsRoots;
 use crate::output::OutputDir;
 
 pub struct Cache;
@@ -16,8 +17,8 @@ struct CacheRecord {
 const FILES: &[&str] = &["/proc/slabinfo", "/proc/meminfo"];
 
 impl Cache {
-    pub async fn probe(&self) -> ProbeOutcome {
-        probe_files(FILES, "all cache files missing")
+    pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
+        probe_files(roots, FILES, "all cache files missing")
     }
 
     pub async fn collect(
@@ -44,14 +45,14 @@ impl Cache {
         }
         let start = Instant::now();
 
-        fn read_raw(path: &str) -> Option<String> {
-            std::fs::read_to_string(path).ok()
+        fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
+            std::fs::read_to_string(roots.resolve(path)).ok()
         }
 
         let record = CacheRecord {
             collection: "RT-21",
-            slabinfo: read_raw(FILES[0]),
-            meminfo: read_raw(FILES[1]),
+            slabinfo: read_raw(&probe.roots, FILES[0]),
+            meminfo: read_raw(&probe.roots, FILES[1]),
         };
 
         let writer = match output.json_writer("caches.json") {

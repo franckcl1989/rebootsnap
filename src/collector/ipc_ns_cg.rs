@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::time::Instant;
 
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
+use crate::fs::FsRoots;
 use crate::output::OutputDir;
 
 pub struct IpcNsCg;
@@ -23,8 +24,8 @@ const FILES: &[&str] = &[
 ];
 
 impl IpcNsCg {
-    pub async fn probe(&self) -> ProbeOutcome {
-        probe_files(FILES, "all ipc/ns/cg files missing")
+    pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
+        probe_files(roots, FILES, "all ipc/ns/cg files missing")
     }
 
     pub async fn collect(
@@ -51,16 +52,16 @@ impl IpcNsCg {
         }
         let start = Instant::now();
 
-        fn read_raw(path: &str) -> Option<String> {
-            std::fs::read_to_string(path).ok()
+        fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
+            std::fs::read_to_string(roots.resolve(path)).ok()
         }
 
         let record = IpcNsCgRecord {
             collection: "RT-14",
-            cgroups: read_raw(FILES[0]),
-            ipc_msg: read_raw(FILES[1]),
-            ipc_sem: read_raw(FILES[2]),
-            ipc_shm: read_raw(FILES[3]),
+            cgroups: read_raw(&probe.roots, FILES[0]),
+            ipc_msg: read_raw(&probe.roots, FILES[1]),
+            ipc_sem: read_raw(&probe.roots, FILES[2]),
+            ipc_shm: read_raw(&probe.roots, FILES[3]),
         };
 
         let writer = match output.json_writer("ipc_ns_cg.json") {

@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::time::Instant;
 
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
+use crate::fs::FsRoots;
 use crate::output::OutputDir;
 
 pub struct Boot;
@@ -25,8 +26,8 @@ const FILES: &[&str] = &[
 ];
 
 impl Boot {
-    pub async fn probe(&self) -> ProbeOutcome {
-        probe_files(FILES, "all boot identity files missing")
+    pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
+        probe_files(roots, FILES, "all boot identity files missing")
     }
 
     pub async fn collect(
@@ -53,16 +54,16 @@ impl Boot {
         }
         let start = Instant::now();
 
-        fn read_trimmed(path: &str) -> Option<String> {
-            std::fs::read_to_string(path).ok().map(|s| s.trim().to_string())
+        fn read_trimmed(roots: &FsRoots, path: &str) -> Option<String> {
+            std::fs::read_to_string(roots.resolve(path)).ok().map(|s| s.trim().to_string())
         }
 
-        let boot_id = read_trimmed(FILES[0]);
-        let uptime = read_trimmed(FILES[1])
+        let boot_id = read_trimmed(&probe.roots, FILES[0]);
+        let uptime = read_trimmed(&probe.roots, FILES[1])
             .and_then(|s| s.split_whitespace().next()?.parse::<f64>().ok());
-        let kernel_version = read_trimmed(FILES[2]);
-        let cmdline = read_trimmed(FILES[3]);
-        let hostname = read_trimmed(FILES[4]);
+        let kernel_version = read_trimmed(&probe.roots, FILES[2]);
+        let cmdline = read_trimmed(&probe.roots, FILES[3]);
+        let hostname = read_trimmed(&probe.roots, FILES[4]);
 
         let record = BootRecord {
             collection: "RT-01",
