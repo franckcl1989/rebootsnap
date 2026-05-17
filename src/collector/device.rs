@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::path::Path;
 use std::time::Instant;
 
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
@@ -12,10 +13,90 @@ pub struct Device;
 struct DeviceRecord {
     collection: &'static str,
     devices: Option<String>,
-    iomem: Option<String>,
+    misc: Option<String>,
+    kernel_debug: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sysfs_devices: Option<String>,
 }
 
-const FILES: &[&str] = &["/proc/devices", "/proc/iomem"];
+#[derive(Serialize)]
+struct SysfsDevice {
+    path: String,
+    uevent: Option<String>,
+    driver: Option<String>,
+    modalias: Option<String>,
+    device_state: Option<String>,
+    errors: Option<String>,
+    removable: Option<String>,
+    reset: Option<String>,
+}
+
+const FILES: &[&str] = &[
+    "/proc/devices",
+    "/proc/misc",
+    "/sys/kernel/debug",
+];
+
+fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
+    std::fs::read_to_string(roots.resolve(path)).ok()
+}
+
+fn walk_devices(dir: &Path, depth: u32, max_depth: u32, results: &mut Vec<SysfsDevice>) {
+    if depth > max_depth || results.len() >= 100 {
+        return;
+    }
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let info = SysfsDevice {
+                path: path.display().to_string(),
+                uevent: std::fs::read_to_string(path.join("uevent")).ok(),
+                driver: std::fs::read_link(path.join("driver"))
+                    .ok()
+                    .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string())),
+                modalias: std::fs::read_to_string(path.join("modalias")).ok(),
+                device_state: std::fs::read_to_string(path.join("state")).ok(),
+                errors: std::fs::read_to_string(path.join("errors")).ok(),
+                removable: std::fs::read_to_string(path.join("removable")).ok(),
+                reset: std::fs::read_to_string(path.join("reset")).ok(),
+            };
+            if info.uevent.is_some() || info.driver.is_some() {
+                results.push(info);
+            }
+            walk_devices(&path, depth + 1, max_depth, results);
+        }
+    }
+}
+
+fn enumerate_sysfs_devices(roots: &FsRoots) -> Option<String> {
+    let devices_dir = roots.resolve("/sys/devices");
+    let mut results: Vec<SysfsDevice> = Vec::new();
+
+    let entries = match std::fs::read_dir(&devices_dir) {
+        Ok(e) => e,
+        Err(_) => return None,
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            walk_devices(&path, 0, 3, &mut results);
+            if results.len() >= 100 {
+                break;
+            }
+        }
+    }
+
+    if results.is_empty() {
+        return None;
+    }
+
+    serde_json::to_string(&results).ok()
+}
 
 impl Device {
     pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
@@ -46,14 +127,19 @@ impl Device {
         }
         let start = Instant::now();
 
-        fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
-            std::fs::read_to_string(roots.resolve(path)).ok()
-        }
-
         let record = DeviceRecord {
             collection: "RT-17",
             devices: read_raw(&probe.roots, FILES[0]),
-            iomem: read_raw(&probe.roots, FILES[1]),
+            misc: read_raw(&probe.roots, FILES[1]),
+            kernel_debug: if std::fs::read_dir(probe.roots.resolve(FILES[2]))
+                .ok()
+                .is_some_and(|mut d| d.next().is_some())
+            {
+                Some("mounted".to_string())
+            } else {
+                None
+            },
+            sysfs_devices: enumerate_sysfs_devices(&probe.roots),
         };
 
         let writer = match output.json_writer("devices.json") {

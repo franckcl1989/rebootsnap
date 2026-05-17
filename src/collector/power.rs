@@ -11,11 +11,178 @@ pub struct Power;
 #[derive(Serialize)]
 struct PowerRecord {
     collection: &'static str,
-    state: Option<String>,
-    disk: Option<String>,
+    suspend_state: Option<String>,
+    mem_sleep: Option<String>,
+    acpi_wakeup: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cpu_freq: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cpu_throttle: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thermal_zones: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    edac_errors: Option<String>,
 }
 
-const FILES: &[&str] = &["/sys/power/state", "/sys/power/disk"];
+const FILES: &[&str] = &[
+    "/sys/power/state",
+    "/sys/power/mem_sleep",
+    "/proc/acpi/wakeup",
+];
+
+fn read_cpu_freq(roots: &FsRoots) -> Option<String> {
+    let cpu_dir = std::fs::read_dir(roots.resolve("/sys/devices/system/cpu")).ok()?;
+    let mut entries = Vec::new();
+    for entry in cpu_dir.flatten() {
+        if !entry.file_type().ok().is_some_and(|ft| ft.is_dir()) {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !name.starts_with("cpu") {
+            continue;
+        }
+        let id: u32 = match name[3..].parse() {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let cpufreq = entry.path().join("cpufreq");
+        if !cpufreq.is_dir() {
+            continue;
+        }
+        entries.push((id, cpufreq));
+    }
+    if entries.is_empty() {
+        return None;
+    }
+    entries.sort_by_key(|(id, _)| *id);
+    let mut out = String::new();
+    for (id, path) in &entries {
+        out.push_str(&format!("cpu{}:\n", id));
+        for f in &[
+            "scaling_cur_freq",
+            "scaling_governor",
+            "scaling_max_freq",
+            "scaling_min_freq",
+            "cpuinfo_max_freq",
+            "cpuinfo_min_freq",
+        ] {
+            let content = std::fs::read_to_string(path.join(f)).unwrap_or_default();
+            out.push_str(&format!("{}: {}\n", f, content.trim()));
+        }
+    }
+    Some(out)
+}
+
+fn read_cpu_throttle(roots: &FsRoots) -> Option<String> {
+    let cpu_dir = std::fs::read_dir(roots.resolve("/sys/devices/system/cpu")).ok()?;
+    let mut entries = Vec::new();
+    for entry in cpu_dir.flatten() {
+        if !entry.file_type().ok().is_some_and(|ft| ft.is_dir()) {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if !name.starts_with("cpu") {
+            continue;
+        }
+        let id: u32 = match name[3..].parse() {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let throttle = entry.path().join("thermal_throttle");
+        if !throttle.is_dir() {
+            continue;
+        }
+        entries.push((id, throttle));
+    }
+    if entries.is_empty() {
+        return None;
+    }
+    entries.sort_by_key(|(id, _)| *id);
+    let mut out = String::new();
+    for (id, path) in &entries {
+        out.push_str(&format!("cpu{}:\n", id));
+        for f in &["core_throttle_count", "package_throttle_count"] {
+            let content = std::fs::read_to_string(path.join(f)).unwrap_or_default();
+            out.push_str(&format!("{}: {}\n", f, content.trim()));
+        }
+    }
+    Some(out)
+}
+
+fn read_thermal_zones(roots: &FsRoots) -> Option<String> {
+    let thermal_dir = match std::fs::read_dir(roots.resolve("/sys/class/thermal")) {
+        Ok(d) => d,
+        Err(_) => return None,
+    };
+    let mut zone_entries = Vec::new();
+    let mut cd_entries = Vec::new();
+    for entry in thermal_dir.flatten() {
+        if !entry.file_type().ok().is_some_and(|ft| ft.is_dir()) {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with("thermal_zone") {
+            zone_entries.push((name, entry.path()));
+        } else if name.starts_with("cooling_device") {
+            cd_entries.push((name, entry.path()));
+        }
+    }
+    if zone_entries.is_empty() && cd_entries.is_empty() {
+        return None;
+    }
+    zone_entries.sort();
+    cd_entries.sort();
+    let mut out = String::new();
+    for (name, path) in &zone_entries {
+        out.push_str(&format!("{}:\n", name));
+        for f in &["type", "temp", "mode", "policy"] {
+            let content = std::fs::read_to_string(path.join(f)).unwrap_or_default();
+            out.push_str(&format!("{}: {}\n", f, content.trim()));
+        }
+    }
+    for (name, path) in &cd_entries {
+        out.push_str(&format!("{}:\n", name));
+        for f in &["type", "cur_state", "max_state"] {
+            let content = std::fs::read_to_string(path.join(f)).unwrap_or_default();
+            out.push_str(&format!("{}: {}\n", f, content.trim()));
+        }
+    }
+    Some(out)
+}
+
+fn read_edac_errors(roots: &FsRoots) -> Option<String> {
+    let edac_dir = std::fs::read_dir(roots.resolve("/sys/devices/system/edac/mc")).ok()?;
+    let mut entries = Vec::new();
+    for entry in edac_dir.flatten() {
+        if !entry.file_type().ok().is_some_and(|ft| ft.is_dir()) {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with("mc") {
+            entries.push((name, entry.path()));
+        }
+    }
+    if entries.is_empty() {
+        return None;
+    }
+    entries.sort();
+    let mut out = String::new();
+    for (name, path) in &entries {
+        out.push_str(&format!("{}:\n", name));
+        for f in &[
+            "ce_count",
+            "ue_count",
+            "ce_noinfo_count",
+            "ue_noinfo_count",
+            "size_mb",
+            "mc_name",
+        ] {
+            let content = std::fs::read_to_string(path.join(f)).unwrap_or_default();
+            out.push_str(&format!("{}: {}\n", f, content.trim()));
+        }
+    }
+    Some(out)
+}
 
 impl Power {
     pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
@@ -52,8 +219,13 @@ impl Power {
 
         let record = PowerRecord {
             collection: "RT-18",
-            state: read_raw(&probe.roots, FILES[0]),
-            disk: read_raw(&probe.roots, FILES[1]),
+            suspend_state: read_raw(&probe.roots, FILES[0]),
+            mem_sleep: read_raw(&probe.roots, FILES[1]),
+            acpi_wakeup: read_raw(&probe.roots, FILES[2]),
+            cpu_freq: read_cpu_freq(&probe.roots),
+            cpu_throttle: read_cpu_throttle(&probe.roots),
+            thermal_zones: read_thermal_zones(&probe.roots),
+            edac_errors: read_edac_errors(&probe.roots),
         };
 
         let writer = match output.json_writer("power.json") {

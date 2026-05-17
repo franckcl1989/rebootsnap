@@ -9,12 +9,33 @@ use crate::output::OutputDir;
 pub struct Events;
 
 #[derive(Serialize)]
-struct EventsMarker {
+struct DmesgRecord {
     collection: &'static str,
     source: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    printk_levels: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    printk_ratelimit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    printk_ratelimit_burst: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    printk_dropped: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    devkmsg_log: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dmesg_restrict: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dmesg_text: Option<String>,
 }
 
-const FILES: &[&str] = &["/proc/sys/kernel/printk"];
+const FILES: &[&str] = &[
+    "/proc/sys/kernel/printk",
+    "/proc/sys/kernel/printk_ratelimit",
+    "/proc/sys/kernel/printk_ratelimit_burst",
+    "/proc/sys/kernel/printk_dropped",
+    "/proc/sys/kernel/devkmsg_log",
+    "/proc/sys/kernel/dmesg_restrict",
+];
 
 const KMSG_PATH: &str = "/dev/kmsg";
 
@@ -58,22 +79,28 @@ impl Events {
         }
         let start = Instant::now();
 
-        let dmesg_raw = std::fs::read_to_string(probe.roots.resolve(KMSG_PATH)).ok();
-        let dmesg_bytes: Vec<u8> = {
-            let marker = EventsMarker {
-                collection: "RT-20",
-                source: "/dev/kmsg",
-            };
-            let mut prefix = serde_json::to_vec(&marker).unwrap_or_default();
-            prefix.push(b'\n');
-            if let Some(ref s) = dmesg_raw {
-                prefix.extend_from_slice(s.as_bytes());
-            }
-            prefix
-        };
-        let dmesg_ok = dmesg_raw.is_some();
+        fn read_trimmed(roots: &FsRoots, path: &str) -> Option<String> {
+            std::fs::read_to_string(roots.resolve(path))
+                .ok()
+                .map(|s| s.trim().to_string())
+        }
 
-        let mut writer = match output.text_writer("dmesg.txt") {
+        let dmesg_text = read_trimmed(&probe.roots, KMSG_PATH);
+        let dmesg_ok = dmesg_text.is_some();
+
+        let record = DmesgRecord {
+            collection: "RT-20",
+            source: "/dev/kmsg",
+            printk_levels: read_trimmed(&probe.roots, FILES[0]),
+            printk_ratelimit: read_trimmed(&probe.roots, FILES[1]),
+            printk_ratelimit_burst: read_trimmed(&probe.roots, FILES[2]),
+            printk_dropped: read_trimmed(&probe.roots, FILES[3]),
+            devkmsg_log: read_trimmed(&probe.roots, FILES[4]),
+            dmesg_restrict: read_trimmed(&probe.roots, FILES[5]),
+            dmesg_text,
+        };
+
+        let writer = match output.json_writer("dmesg.json") {
             Ok(w) => w,
             Err(e) => {
                 return CollectionOutcome {
@@ -93,27 +120,8 @@ impl Events {
                 };
             }
         };
-
-        if let Err(e) = writer.write(&dmesg_bytes).await {
-            return CollectionOutcome {
-                status: CollectionStatus::Failed {
-                    reason: e.to_string(),
-                },
-                duration: start.elapsed(),
-                file_size: 0,
-                items_total: None,
-                items_collected: None,
-                mem_total_kb: None,
-                mem_available_kb: None,
-                hostname: None,
-                kernel_version: None,
-                boot_id: None,
-                uptime_seconds: None,
-            };
-        }
-
-        let file_size = match writer.finish().await {
-            Ok(s) => s,
+        let (size, _) = match writer.commit(&record).await {
+            Ok(v) => v,
             Err(e) => {
                 return CollectionOutcome {
                     status: CollectionStatus::Failed {
@@ -147,7 +155,7 @@ impl Events {
                 }
             },
             duration: start.elapsed(),
-            file_size,
+            file_size: size,
             items_total: None,
             items_collected: if dmesg_ok { Some(1) } else { None },
             mem_total_kb: None,

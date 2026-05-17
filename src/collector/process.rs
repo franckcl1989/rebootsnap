@@ -18,6 +18,36 @@ struct ProcessRecord {
     uid: Option<u32>,
     threads: Option<i64>,
     cmdline: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    limits: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sched: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    schedstat: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    oom_score: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    oom_score_adj: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ns_mnt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ns_net: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ns_pid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ns_ipc: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ns_uts: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ns_user: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ns_cgroup: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ns_time: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cgroup: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    loginuid: Option<String>,
 }
 
 impl Process {
@@ -105,6 +135,77 @@ impl Process {
                 .map(|c| c.join(" "))
                 .filter(|s| !s.is_empty());
 
+            let limits = std::fs::read_to_string(
+                probe.roots.resolve(&format!("/proc/{}/limits", proc.pid)),
+            )
+            .ok()
+            .map(|s| s.chars().take(4096).collect::<String>());
+            let sched = std::fs::read_to_string(
+                probe.roots.resolve(&format!("/proc/{}/sched", proc.pid)),
+            )
+            .ok()
+            .map(|s| s.chars().take(2048).collect::<String>());
+            let schedstat = std::fs::read_to_string(
+                probe.roots.resolve(&format!("/proc/{}/schedstat", proc.pid)),
+            )
+            .ok();
+            let oom_score = std::fs::read_to_string(
+                probe.roots.resolve(&format!("/proc/{}/oom_score", proc.pid)),
+            )
+            .ok();
+            let oom_score_adj = std::fs::read_to_string(
+                probe.roots.resolve(&format!("/proc/{}/oom_score_adj", proc.pid)),
+            )
+            .ok();
+            let cgroup = std::fs::read_to_string(
+                probe.roots.resolve(&format!("/proc/{}/cgroup", proc.pid)),
+            )
+            .ok();
+            let loginuid = std::fs::read_to_string(
+                probe.roots.resolve(&format!("/proc/{}/loginuid", proc.pid)),
+            )
+            .ok();
+            let ns_mnt = std::fs::read_link(
+                probe.roots.resolve(&format!("/proc/{}/ns/mnt", proc.pid)),
+            )
+            .ok()
+            .map(|p| p.to_string_lossy().to_string());
+            let ns_net = std::fs::read_link(
+                probe.roots.resolve(&format!("/proc/{}/ns/net", proc.pid)),
+            )
+            .ok()
+            .map(|p| p.to_string_lossy().to_string());
+            let ns_pid = std::fs::read_link(
+                probe.roots.resolve(&format!("/proc/{}/ns/pid", proc.pid)),
+            )
+            .ok()
+            .map(|p| p.to_string_lossy().to_string());
+            let ns_ipc = std::fs::read_link(
+                probe.roots.resolve(&format!("/proc/{}/ns/ipc", proc.pid)),
+            )
+            .ok()
+            .map(|p| p.to_string_lossy().to_string());
+            let ns_uts = std::fs::read_link(
+                probe.roots.resolve(&format!("/proc/{}/ns/uts", proc.pid)),
+            )
+            .ok()
+            .map(|p| p.to_string_lossy().to_string());
+            let ns_user = std::fs::read_link(
+                probe.roots.resolve(&format!("/proc/{}/ns/user", proc.pid)),
+            )
+            .ok()
+            .map(|p| p.to_string_lossy().to_string());
+            let ns_cgroup = std::fs::read_link(
+                probe.roots.resolve(&format!("/proc/{}/ns/cgroup", proc.pid)),
+            )
+            .ok()
+            .map(|p| p.to_string_lossy().to_string());
+            let ns_time = std::fs::read_link(
+                probe.roots.resolve(&format!("/proc/{}/ns/time", proc.pid)),
+            )
+            .ok()
+            .map(|p| p.to_string_lossy().to_string());
+
             let record = ProcessRecord {
                 collection: "RT-04",
                 pid,
@@ -114,6 +215,21 @@ impl Process {
                 uid,
                 threads,
                 cmdline,
+                limits,
+                sched,
+                schedstat,
+                oom_score,
+                oom_score_adj,
+                ns_mnt,
+                ns_net,
+                ns_pid,
+                ns_ipc,
+                ns_uts,
+                ns_user,
+                ns_cgroup,
+                ns_time,
+                cgroup,
+                loginuid,
             };
 
             if let Err(e) = writer.write_line(&record).await {

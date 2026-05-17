@@ -1,0 +1,2 @@
+numa_hit 1000000
+numa_miss 0

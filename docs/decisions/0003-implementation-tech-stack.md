@@ -77,7 +77,7 @@
 | --- | --- | --- |
 | 网口/地址/路由/邻居 | `rtnetlink` + `netlink-packet-route` | RT-11 通过 `/sys/class/net/*` + `/proc/net/route` 读取 |
 | conntrack 表 | `conntrack` | RT-13 通过 `/proc/net/nf_conntrack` 文本解析 |
-| nftables 规则集 | `neli` | RT-13 通过 `/proc/net/nf_tables_names` 文本解析 |
+| nftables 规则集 | `neli` | RT-13 通过 `/proc/net/nf_tables_names` + `/proc/net/ip_tables_names` 等 procfs 文本获取表名和 iptables 模块信息；实际 nftables 规则内容仍需 netlink（暂缓至 0.2.0） |
 | dmesg 内核环形缓冲 | `nix::sys::syslog` | RT-20 通过 `/dev/kmsg` 直读 |
 
 `procfs`、`zbus`、`serde`、`serde_json`、`flate2`、`tar`、`chrono`、`thiserror`、`tracing`、`tracing-subscriber` 和 `tempfile` 均为纯 Rust，不依赖 C 代码。

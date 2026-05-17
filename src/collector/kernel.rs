@@ -18,6 +18,18 @@ struct KernelRecord {
     core_pattern: Option<String>,
     panic: Option<String>,
     printk: Option<String>,
+    watchdog: Option<String>,
+    soft_watchdog: Option<String>,
+    nmi_watchdog: Option<String>,
+    kexec_load_disabled: Option<String>,
+    hung_task_panic: Option<String>,
+    hung_task_timeout_secs: Option<String>,
+    hung_task_check_interval_secs: Option<String>,
+    sysrq: Option<String>,
+    panic_on_oops: Option<String>,
+    unknown_nmi_panic: Option<String>,
+    kexec_crash_loaded: Option<String>,
+    kexec_crash_size: Option<String>,
 }
 
 const FILES: &[&str] = &[
@@ -28,6 +40,18 @@ const FILES: &[&str] = &[
     "/proc/sys/kernel/core_pattern",
     "/proc/sys/kernel/panic",
     "/proc/sys/kernel/printk",
+    "/proc/sys/kernel/watchdog",
+    "/proc/sys/kernel/soft_watchdog",
+    "/proc/sys/kernel/nmi_watchdog",
+    "/proc/sys/kernel/kexec_load_disabled",
+    "/proc/sys/kernel/hung_task_panic",
+    "/proc/sys/kernel/hung_task_timeout_secs",
+    "/proc/sys/kernel/hung_task_check_interval_secs",
+    "/proc/sys/kernel/sysrq",
+    "/proc/sys/kernel/panic_on_oops",
+    "/proc/sys/kernel/unknown_nmi_panic",
+    "/sys/kernel/kexec_crash_loaded",
+    "/sys/kernel/kexec_crash_size",
 ];
 
 impl Kernel {
@@ -72,6 +96,18 @@ impl Kernel {
             core_pattern: read_raw(&probe.roots, FILES[4]),
             panic: read_raw(&probe.roots, FILES[5]),
             printk: read_raw(&probe.roots, FILES[6]),
+            watchdog: read_raw(&probe.roots, FILES[7]),
+            soft_watchdog: read_raw(&probe.roots, FILES[8]),
+            nmi_watchdog: read_raw(&probe.roots, FILES[9]),
+            kexec_load_disabled: read_raw(&probe.roots, FILES[10]),
+            hung_task_panic: read_raw(&probe.roots, FILES[11]),
+            hung_task_timeout_secs: read_raw(&probe.roots, FILES[12]),
+            hung_task_check_interval_secs: read_raw(&probe.roots, FILES[13]),
+            sysrq: read_raw(&probe.roots, FILES[14]),
+            panic_on_oops: read_raw(&probe.roots, FILES[15]),
+            unknown_nmi_panic: read_raw(&probe.roots, FILES[16]),
+            kexec_crash_loaded: read_raw(&probe.roots, FILES[17]),
+            kexec_crash_size: read_raw(&probe.roots, FILES[18]),
         };
 
         let writer = match output.json_writer("kernel.json") {

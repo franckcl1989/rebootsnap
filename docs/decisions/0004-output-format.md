@@ -43,7 +43,7 @@ rebootsnap-{timestamp}/
   devices.json        # RT-17
   power.json          # RT-18
   time.json           # RT-19
-  dmesg.txt           # RT-20（文本缓冲）
+  dmesg.json          # RT-20（JSON，含 dmesg 文本与 printk 控制参数）
   caches.json         # RT-21
 ```
 
@@ -115,7 +115,7 @@ rebootsnap-{timestamp}/
 
 - `status` 枚举：`ok`（完整采集）、`truncated`（因上限截断）、`degraded`（部分子项不可用）、`failed`（完全失败）、`timed_out`（超时）。
 - `items` 按 RT 编号升序排列，便于工具遍历。
-- 若一个 item 产生多个文件（如 RT-20 输出 `dmesg.txt` 和 `journal-tail.txt`），用 `files`（复数，字符串数组）替代 `file` 字段。
+- 若一个 item 产生多个文件（如 RT-20 输出 `dmesg.json` 和 `journal-tail.txt`），用 `files`（复数，字符串数组）替代 `file` 字段。
 - 若全局超时退出，`exit_reason` 为 `global_timeout`，`items` 末尾记录未完成的大类。
 
 ### summary.json — 指标层

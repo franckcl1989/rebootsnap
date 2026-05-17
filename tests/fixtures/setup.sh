@@ -19,6 +19,19 @@ echo "0"                       > "$base/proc/sys/kernel/tainted"
 echo "core"                    > "$base/proc/sys/kernel/core_pattern"
 echo "0"                       > "$base/proc/sys/kernel/panic"
 echo "7       4       1       7" > "$base/proc/sys/kernel/printk"
+echo "1"                       > "$base/proc/sys/kernel/watchdog"
+echo "0"                       > "$base/proc/sys/kernel/soft_watchdog"
+echo "0"                       > "$base/proc/sys/kernel/nmi_watchdog"
+echo "0"                       > "$base/proc/sys/kernel/kexec_load_disabled"
+echo "0"                       > "$base/proc/sys/kernel/hung_task_panic"
+echo "120"                     > "$base/proc/sys/kernel/hung_task_timeout_secs"
+echo "0"                       > "$base/proc/sys/kernel/hung_task_check_interval_secs"
+echo "1"                       > "$base/proc/sys/kernel/sysrq"
+echo "0"                       > "$base/proc/sys/kernel/panic_on_oops"
+echo "0"                       > "$base/proc/sys/kernel/unknown_nmi_panic"
+mkdir -p "$base/sys/kernel"
+echo "0"                       > "$base/sys/kernel/kexec_crash_loaded"
+echo "0"                       > "$base/sys/kernel/kexec_crash_size"
 
 # ===== systemd.rs (RT-03) =====
 mkdir -p "$base/run/dbus"
@@ -32,11 +45,28 @@ for pid in 1 100 999; do
     mkdir -p "$d"
     echo "mock_exe"            > "$d/comm"
     echo "0"                   > "$d/oom_score"
+    echo "Limit  Soft Limit  Hard Limit  Units" > "$d/limits"
+    echo "Max open files  1024  4096  files" >> "$d/limits"
+    echo "process (0, #0)"     > "$d/sched"
+    echo "12345 678 90"        > "$d/schedstat"
+    echo "0"                   > "$d/oom_score_adj"
+    echo "0::/system.slice/sshd.service" > "$d/cgroup"
+    echo "0"                   > "$d/loginuid"
+    mkdir -p "$d/ns"
+    for ns in mnt net pid ipc uts user cgroup time; do
+        echo "$ns:[4026531839]" > "$d/ns/$ns"
+    done
 done
 
 # ===== cpu.rs (RT-05) =====
 mkdir -p "$base/sys/devices/system/cpu"
 echo "0-3"                     > "$base/sys/devices/system/cpu/possible"
+for cpu in 0 1 2 3; do
+    mkdir -p "$base/sys/devices/system/cpu/cpu$cpu/topology"
+    echo "1" > "$base/sys/devices/system/cpu/cpu$cpu/online"
+    echo "$cpu" > "$base/sys/devices/system/cpu/cpu$cpu/topology/core_id"
+    echo "0-3" > "$base/sys/devices/system/cpu/cpu$cpu/topology/thread_siblings_list"
+done
 cat > "$base/proc/stat" <<'EOF'
 cpu  100 0 50 20000 30 0 5 0 0 0
 cpu0 25 0 12 5000 8 0 1 0 0 0
@@ -80,6 +110,43 @@ EOF
 echo "nr_free_pages 2048000"  > "$base/proc/vmstat"
 echo "some avg10=0.00 avg60=0.00 avg300=0.00 total=0" > "$base/proc/pressure/memory"
 echo "some avg10=0.00 avg60=0.00 avg300=0.00 total=0" > "$base/proc/pressure/io"
+mkdir -p "$base/proc/sys/vm"
+echo "Filename  Type  Size  Used  Priority" > "$base/proc/swaps"
+echo "/dev/zram0  partition  4194304  0  -2" >> "$base/proc/swaps"
+echo "60" > "$base/proc/sys/vm/swappiness"
+echo "0" > "$base/proc/sys/vm/oom_kill_allocating_task"
+echo "0" > "$base/proc/sys/vm/panic_on_oom"
+echo "0" > "$base/proc/sys/vm/overcommit_memory"
+echo "50" > "$base/proc/sys/vm/overcommit_ratio"
+echo "67584" > "$base/proc/sys/vm/min_free_kbytes"
+echo "20" > "$base/proc/sys/vm/dirty_ratio"
+echo "10" > "$base/proc/sys/vm/dirty_background_ratio"
+echo "100" > "$base/proc/sys/vm/vfs_cache_pressure"
+echo "0" > "$base/proc/sys/vm/zone_reclaim_mode"
+
+# zram
+mkdir -p "$base/sys/block/zram0"
+echo "4194304" > "$base/sys/block/zram0/disksize"
+echo "lzo" > "$base/sys/block/zram0/comp_algorithm"
+echo "0 0 0 0 0 0 0" > "$base/sys/block/zram0/mm_stat"
+
+# zswap
+mkdir -p "$base/sys/kernel/mm/zswap"
+echo "0" > "$base/sys/kernel/mm/zswap/pool_total_size"
+echo "0" > "$base/sys/kernel/mm/zswap/stored_pages"
+
+# THP
+mkdir -p "$base/sys/kernel/mm/transparent_hugepage/khugepaged"
+echo "always [madvise] never" > "$base/sys/kernel/mm/transparent_hugepage/enabled"
+echo "always defer defer+madvise [madvise] never" > "$base/sys/kernel/mm/transparent_hugepage/defrag"
+echo "yes" > "$base/sys/kernel/mm/transparent_hugepage/khugepaged/defrag"
+
+# NUMA node
+mkdir -p "$base/sys/devices/system/node/node0"
+echo "Node 0 MemTotal: 8192000 kB" > "$base/sys/devices/system/node/node0/meminfo"
+echo "MemFree: 4096000 kB" >> "$base/sys/devices/system/node/node0/meminfo"
+echo "numa_hit 1000000" > "$base/sys/devices/system/node/node0/numastat"
+echo "numa_miss 0" >> "$base/sys/devices/system/node/node0/numastat"
 
 # ===== fd.rs (RT-07) =====
 mkdir -p "$base/proc/sys/fs"
@@ -120,6 +187,16 @@ EOF
 echo "major minor  #blocks  name" > "$base/proc/partitions"
 echo "   8     0   50000000 sda"  >> "$base/proc/partitions"
 echo "   8     1   25000000 sda1" >> "$base/proc/partitions"
+mkdir -p "$base/sys/block/sda/queue" "$base/sys/block/dm-0/dm"
+echo "[mq-deadline] none" > "$base/sys/block/sda/queue/scheduler"
+echo "128" > "$base/sys/block/sda/queue/nr_requests"
+echo "128" > "$base/sys/block/sda/queue/read_ahead_kb"
+echo "0" > "$base/sys/block/sda/queue/rotational"
+echo "1280" > "$base/sys/block/sda/queue/max_sectors_kb"
+echo "1000 200 20000 500 500 300 10000 200 0 300 700" > "$base/sys/block/sda/stat"
+echo "root" > "$base/sys/block/dm-0/dm/name"
+echo "LVM-abc-def" > "$base/sys/block/dm-0/dm/uuid"
+echo "0" > "$base/sys/block/dm-0/dm/suspended"
 
 # ===== netdev.rs (RT-11) =====
 for iface in lo eth0; do
@@ -167,28 +244,80 @@ echo "0" > "$base/proc/net/stat/nf_conntrack"
 echo "65536" > "$base/proc/sys/net/nf_conntrack_max"
 echo "" > "$base/proc/net/nf_tables_names"
 echo "" > "$base/proc/net/xfrm_stat"
+echo "" > "$base/proc/net/ip_tables_names"
+echo "filter" >> "$base/proc/net/ip_tables_names"
+echo "" > "$base/proc/net/ip6_tables_names"
+echo "" > "$base/proc/net/arp_tables_names"
+echo "" > "$base/proc/net/ip_tables_matches"
+echo "" > "$base/proc/net/ip_tables_targets"
+echo "" > "$base/proc/net/ebtables_names"
 
 # ===== ipc_ns_cg.rs (RT-14) =====
 mkdir -p "$base/proc/sysvipc" "$base/proc/1/ns"
-echo "" > "$base/proc/sysvipc/shm"
+echo "#subsys_name  hierarchy  num_cgroups  enabled" > "$base/proc/cgroups"
+echo "memory  0  100  1" >> "$base/proc/cgroups"
+echo "cpu  0  50  1" >> "$base/proc/cgroups"
 echo "" > "$base/proc/sysvipc/msg"
 echo "" > "$base/proc/sysvipc/sem"
-echo "ipc:[4026531839]"       > "$base/proc/1/ns/ipc"
+echo "" > "$base/proc/sysvipc/shm"
+echo "ipc:[4026531839]" > "$base/proc/1/ns/ipc"
 echo "0::/system.slice/sshd.service" > "$base/proc/1/cgroup"
+
+# cgroup v2 unified hierarchy
+mkdir -p "$base/sys/fs/cgroup/system.slice"
+echo "cpuset cpu io memory hugetlb pids" > "$base/sys/fs/cgroup/cgroup.controllers"
+echo "cpu memory pids" > "$base/sys/fs/cgroup/cgroup.subtree_control"
+echo "1" > "$base/sys/fs/cgroup/cgroup.procs"
+echo "1" > "$base/sys/fs/cgroup/cgroup.threads"
+echo "max" > "$base/sys/fs/cgroup/memory.max"
+echo "104857600" > "$base/sys/fs/cgroup/memory.current"
+echo "max 100000" > "$base/sys/fs/cgroup/cpu.max"
+echo "100" > "$base/sys/fs/cgroup/cpu.weight"
+echo "max" > "$base/sys/fs/cgroup/pids.max"
+echo "3" > "$base/sys/fs/cgroup/pids.current"
+echo "some avg10=0.00 avg60=0.00 avg300=0.00 total=0" > "$base/sys/fs/cgroup/cpu.pressure"
+echo "some avg10=0.00 avg60=0.00 avg300=0.00 total=0" > "$base/sys/fs/cgroup/memory.pressure"
+echo "some avg10=0.00 avg60=0.00 avg300=0.00 total=0" > "$base/sys/fs/cgroup/io.pressure"
+echo "low 0" > "$base/sys/fs/cgroup/memory.events"
+echo "high 0" >> "$base/sys/fs/cgroup/memory.events"
+echo "max 0" >> "$base/sys/fs/cgroup/memory.events"
+
+# system.slice child
+echo "cpu memory pids" > "$base/sys/fs/cgroup/system.slice/cgroup.controllers"
+echo "10485760" > "$base/sys/fs/cgroup/system.slice/memory.current"
+echo "max 50000" > "$base/sys/fs/cgroup/system.slice/cpu.max"
 
 # ===== session.rs (RT-15) =====
 mkdir -p "$base/var/run" "$base/var/log"
-touch "$base/var/run/utmp" "$base/var/log/wtmp" "$base/var/log/btmp"
+dd if=/dev/zero of="$base/var/run/utmp" bs=1 count=384 2>/dev/null
+touch "$base/var/log/wtmp" "$base/var/log/btmp"
 
 # ===== security.rs (RT-16) =====
-mkdir -p "$base/proc/sys/kernel/random" "$base/etc" "$base/proc/sys/net/ipv4" "$base/proc/sys/net/ipv6/conf/all"
+mkdir -p "$base/proc/sys/kernel/random" "$base/proc/sys/kernel/seccomp" "$base/proc/sys/crypto"
+mkdir -p "$base/sys/kernel/security/ima" "$base/sys/fs/selinux" "$base/etc"
+mkdir -p "$base/proc/sys/net/ipv4/conf/all" "$base/proc/sys/net/ipv6/conf/all"
 echo "256" > "$base/proc/sys/kernel/random/entropy_avail"
 echo "4096" > "$base/proc/sys/kernel/random/poolsize"
 echo "64" > "$base/proc/sys/kernel/random/read_wakeup_threshold"
-echo "hosts: files dns"       > "$base/etc/nsswitch.conf"
-echo "multi on"               > "$base/etc/host.conf"
+echo "60" > "$base/proc/sys/kernel/random/urandom_min_reseed_secs"
+echo "40" > "$base/proc/sys/kernel/cap_last_cap"
+echo "kill_process kill_thread trap errno user_notif" > "$base/proc/sys/kernel/seccomp/actions_avail"
+echo "kill_process kill_thread" > "$base/proc/sys/kernel/seccomp/actions_logged"
+echo "64" > "$base/proc/sys/kernel/audit_backlog_limit"
+echo "0" > "$base/proc/sys/kernel/audit_backlog_wait_time"
+echo "measure func=FILE_CHECK" > "$base/sys/kernel/security/ima/policy"
+echo "lockdown,yama,apparmor" > "$base/sys/kernel/security/lsm"
+echo "[none] integrity confidentiality" > "$base/sys/kernel/security/lockdown"
+echo "1" > "$base/sys/fs/selinux/enforce"
+echo "0" > "$base/proc/sys/crypto/fips_enabled"
 echo "0" > "$base/proc/sys/net/ipv4/ip_forward"
 echo "0" > "$base/proc/sys/net/ipv6/conf/all/forwarding"
+echo "1" > "$base/proc/sys/net/ipv4/conf/all/rp_filter"
+echo "1" > "$base/proc/sys/net/ipv4/tcp_syncookies"
+echo "5" > "$base/proc/sys/kernel/printk_ratelimit"
+echo "10" > "$base/proc/sys/kernel/printk_ratelimit_burst"
+echo "hosts: files dns"       > "$base/etc/nsswitch.conf"
+echo "multi on"               > "$base/etc/host.conf"
 
 # ===== device.rs (RT-17) =====
 cat > "$base/proc/devices" <<'EOF'
@@ -202,11 +331,49 @@ echo "" > "$base/proc/misc"
 mkdir -p "$base/sys/kernel/debug"
 touch "$base/sys/kernel/debug/.placeholder"
 
+mkdir -p "$base/sys/devices/pci0000:00/0000:00:1f.2/ata1/host0/target0:0:0/0:0:0:0/block/sda"
+echo "DRIVER=sd" > "$base/sys/devices/pci0000:00/0000:00:1f.2/ata1/host0/target0:0:0/0:0:0:0/block/sda/uevent"
+
 # ===== power.rs (RT-18) =====
 mkdir -p "$base/sys/power" "$base/proc/acpi"
-echo "mem disk"               > "$base/sys/power/state"
-echo "s2idle shallow deep"    > "$base/sys/power/mem_sleep"
-echo ""                       > "$base/proc/acpi/wakeup"
+echo "mem disk" > "$base/sys/power/state"
+echo "s2idle [deep]" > "$base/sys/power/mem_sleep"
+echo "Device  S-state  Status  Sysfs node" > "$base/proc/acpi/wakeup"
+echo "LID    S3    *enabled  platform:PNP0C0D:00" >> "$base/proc/acpi/wakeup"
+
+# cpufreq
+for cpu in 0 1 2 3; do
+    mkdir -p "$base/sys/devices/system/cpu/cpu$cpu/cpufreq" \
+             "$base/sys/devices/system/cpu/cpu$cpu/thermal_throttle"
+    echo "2000000" > "$base/sys/devices/system/cpu/cpu$cpu/cpufreq/scaling_cur_freq"
+    echo "powersave" > "$base/sys/devices/system/cpu/cpu$cpu/cpufreq/scaling_governor"
+    echo "3600000" > "$base/sys/devices/system/cpu/cpu$cpu/cpufreq/scaling_max_freq"
+    echo "1200000" > "$base/sys/devices/system/cpu/cpu$cpu/cpufreq/scaling_min_freq"
+    echo "3600000" > "$base/sys/devices/system/cpu/cpu$cpu/cpufreq/cpuinfo_max_freq"
+    echo "1200000" > "$base/sys/devices/system/cpu/cpu$cpu/cpufreq/cpuinfo_min_freq"
+    echo "0" > "$base/sys/devices/system/cpu/cpu$cpu/thermal_throttle/core_throttle_count"
+    echo "0" > "$base/sys/devices/system/cpu/cpu$cpu/thermal_throttle/package_throttle_count"
+done
+
+# thermal zones
+mkdir -p "$base/sys/class/thermal/thermal_zone0" \
+         "$base/sys/class/thermal/cooling_device0"
+echo "x86_pkg_temp" > "$base/sys/class/thermal/thermal_zone0/type"
+echo "45000" > "$base/sys/class/thermal/thermal_zone0/temp"
+echo "enabled" > "$base/sys/class/thermal/thermal_zone0/mode"
+echo "step_wise" > "$base/sys/class/thermal/thermal_zone0/policy"
+echo "Processor" > "$base/sys/class/thermal/cooling_device0/type"
+echo "4" > "$base/sys/class/thermal/cooling_device0/cur_state"
+echo "10" > "$base/sys/class/thermal/cooling_device0/max_state"
+
+# EDAC
+mkdir -p "$base/sys/devices/system/edac/mc/mc0"
+echo "0" > "$base/sys/devices/system/edac/mc/mc0/ce_count"
+echo "0" > "$base/sys/devices/system/edac/mc/mc0/ue_count"
+echo "0" > "$base/sys/devices/system/edac/mc/mc0/ce_noinfo_count"
+echo "0" > "$base/sys/devices/system/edac/mc/mc0/ue_noinfo_count"
+echo "16384" > "$base/sys/devices/system/edac/mc/mc0/size_mb"
+echo "Haswell" > "$base/sys/devices/system/edac/mc/mc0/mc_name"
 
 # ===== time.rs (RT-19) =====
 mkdir -p "$base/proc/driver"  "$base/var/spool/cron"
@@ -216,10 +383,21 @@ echo "TZif0"                  > "$base/etc/localtime"
 echo "0.0 0 0"                > "$base/etc/adjtime"
 echo ""                       > "$base/etc/crontab"
 touch "$base/var/spool/cron/.placeholder"
+mkdir -p "$base/sys/devices/system/clocksource/clocksource0"
+echo "tsc" > "$base/sys/devices/system/clocksource/clocksource0/current_clocksource"
+echo "tsc hpet acpi_pm" > "$base/sys/devices/system/clocksource/clocksource0/available_clocksource"
+mkdir -p "$base/sys/class/rtc/rtc0"
+echo "12:00:00" > "$base/sys/class/rtc/rtc0/time"
+echo "2026-01-01" > "$base/sys/class/rtc/rtc0/date"
 
 # ===== events.rs (RT-20) =====
 mkdir -p "$base/dev"
 echo "<6>[  100.000000] mock dmesg entry" > "$base/dev/kmsg"
+echo "1" > "$base/proc/sys/kernel/printk_ratelimit"
+echo "5" > "$base/proc/sys/kernel/printk_ratelimit_burst"
+echo "0" > "$base/proc/sys/kernel/printk_dropped"
+echo "1" > "$base/proc/sys/kernel/devkmsg_log"
+echo "0" > "$base/proc/sys/kernel/dmesg_restrict"
 
 # ===== cache.rs (RT-21) =====
 echo "nameserver 8.8.8.8"    > "$base/etc/resolv.conf"

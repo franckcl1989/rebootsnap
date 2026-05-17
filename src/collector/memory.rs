@@ -23,6 +23,40 @@ struct MemoryRecord {
     pressure_memory: Option<String>,
     vmstat: Option<String>,
     zoneinfo: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    swaps: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    swappiness: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    oom_kill_allocating_task: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    panic_on_oom: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    overcommit_memory: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    overcommit_ratio: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    min_free_kbytes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dirty_ratio: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dirty_background_ratio: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    vfs_cache_pressure: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    zone_reclaim_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    zram_stats: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    zswap_stats: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thp_enabled: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thp_defrag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    khugepaged_defrag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    numa_stats: Option<String>,
 }
 
 const FILES: &[&str] = &[
@@ -30,7 +64,90 @@ const FILES: &[&str] = &[
     "/proc/pressure/memory",
     "/proc/vmstat",
     "/proc/zoneinfo",
+    "/proc/swaps",
+    "/proc/sys/vm/swappiness",
+    "/proc/sys/vm/oom_kill_allocating_task",
+    "/proc/sys/vm/panic_on_oom",
+    "/proc/sys/vm/overcommit_memory",
+    "/proc/sys/vm/overcommit_ratio",
+    "/proc/sys/vm/min_free_kbytes",
+    "/proc/sys/vm/dirty_ratio",
+    "/proc/sys/vm/dirty_background_ratio",
+    "/proc/sys/vm/vfs_cache_pressure",
+    "/proc/sys/vm/zone_reclaim_mode",
 ];
+
+fn read_zram_stats(roots: &FsRoots) -> Option<String> {
+    let block_dir = std::fs::read_dir(roots.resolve("/sys/block")).ok()?;
+    let names: Vec<String> = block_dir
+        .filter_map(|e| {
+            let e = e.ok()?;
+            let name = e.file_name();
+            let s = name.to_str()?;
+            if s.starts_with("zram") {
+                Some(s.to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+    if names.is_empty() {
+        return None;
+    }
+    let mut out = String::new();
+    for name in &names {
+        out.push_str(&format!("{}:\n", name));
+        for f in &["disksize", "comp_algorithm", "mm_stat"] {
+            let path = format!("/sys/block/{}/{}", name, f);
+            let content = std::fs::read_to_string(roots.resolve(&path)).unwrap_or_default();
+            out.push_str(&format!("{}: {}\n", f, content.trim()));
+        }
+    }
+    Some(out)
+}
+
+fn read_zswap_stats(roots: &FsRoots) -> Option<String> {
+    let pool =
+        std::fs::read_to_string(roots.resolve("/sys/kernel/mm/zswap/pool_total_size")).ok()?;
+    let stored =
+        std::fs::read_to_string(roots.resolve("/sys/kernel/mm/zswap/stored_pages"))
+            .unwrap_or_default();
+    Some(format!(
+        "pool_total_size: {}\nstored_pages: {}",
+        pool.trim(),
+        stored.trim()
+    ))
+}
+
+fn read_numa_stats(roots: &FsRoots) -> Option<String> {
+    let node_dir = std::fs::read_dir(roots.resolve("/sys/devices/system/node")).ok()?;
+    let mut names: Vec<String> = node_dir
+        .filter_map(|e| {
+            let e = e.ok()?;
+            let name = e.file_name();
+            let s = name.to_str()?;
+            if s.starts_with("node") {
+                Some(s.to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+    if names.is_empty() {
+        return None;
+    }
+    names.sort();
+    let mut out = String::new();
+    for name in &names {
+        out.push_str(&format!("{}:\n", name));
+        for f in &["meminfo", "numastat"] {
+            let path = format!("/sys/devices/system/node/{}/{}", name, f);
+            let content = std::fs::read_to_string(roots.resolve(&path)).unwrap_or_default();
+            out.push_str(&format!("{}:\n{}\n", f, content.trim()));
+        }
+    }
+    Some(out)
+}
 
 impl Memory {
     pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
@@ -95,6 +212,32 @@ impl Memory {
             pressure_memory: read_raw(&probe.roots, FILES[1]),
             vmstat: read_raw(&probe.roots, FILES[2]),
             zoneinfo: read_raw(&probe.roots, FILES[3]),
+            swaps: read_raw(&probe.roots, FILES[4]),
+            swappiness: read_raw(&probe.roots, FILES[5]),
+            oom_kill_allocating_task: read_raw(&probe.roots, FILES[6]),
+            panic_on_oom: read_raw(&probe.roots, FILES[7]),
+            overcommit_memory: read_raw(&probe.roots, FILES[8]),
+            overcommit_ratio: read_raw(&probe.roots, FILES[9]),
+            min_free_kbytes: read_raw(&probe.roots, FILES[10]),
+            dirty_ratio: read_raw(&probe.roots, FILES[11]),
+            dirty_background_ratio: read_raw(&probe.roots, FILES[12]),
+            vfs_cache_pressure: read_raw(&probe.roots, FILES[13]),
+            zone_reclaim_mode: read_raw(&probe.roots, FILES[14]),
+            zram_stats: read_zram_stats(&probe.roots),
+            zswap_stats: read_zswap_stats(&probe.roots),
+            thp_enabled: read_raw(
+                &probe.roots,
+                "/sys/kernel/mm/transparent_hugepage/enabled",
+            ),
+            thp_defrag: read_raw(
+                &probe.roots,
+                "/sys/kernel/mm/transparent_hugepage/defrag",
+            ),
+            khugepaged_defrag: read_raw(
+                &probe.roots,
+                "/sys/kernel/mm/transparent_hugepage/khugepaged/defrag",
+            ),
+            numa_stats: read_numa_stats(&probe.roots),
         };
 
         let writer = match output.json_writer("memory.json") {

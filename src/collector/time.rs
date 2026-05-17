@@ -12,14 +12,26 @@ pub struct Time;
 struct TimeRecord {
     collection: &'static str,
     timer_list: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     rtc_date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     rtc_time: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    current_clocksource: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    available_clocksource: Option<String>,
 }
 
 const FILES: &[&str] = &[
     "/proc/timer_list",
+    "/proc/driver/rtc",
+    "/etc/localtime",
+    "/etc/adjtime",
+    "/etc/crontab",
     "/sys/class/rtc/rtc0/date",
     "/sys/class/rtc/rtc0/time",
+    "/sys/devices/system/clocksource/clocksource0/current_clocksource",
+    "/sys/devices/system/clocksource/clocksource0/available_clocksource",
 ];
 
 impl Time {
@@ -58,8 +70,10 @@ impl Time {
         let record = TimeRecord {
             collection: "RT-19",
             timer_list: read_raw(&probe.roots, FILES[0]),
-            rtc_date: read_raw(&probe.roots, FILES[1]),
-            rtc_time: read_raw(&probe.roots, FILES[2]),
+            rtc_date: read_raw(&probe.roots, FILES[5]),
+            rtc_time: read_raw(&probe.roots, FILES[6]),
+            current_clocksource: read_raw(&probe.roots, FILES[7]),
+            available_clocksource: read_raw(&probe.roots, FILES[8]),
         };
 
         let writer = match output.json_writer("time.json") {

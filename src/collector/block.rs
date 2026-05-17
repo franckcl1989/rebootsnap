@@ -14,6 +14,26 @@ struct BlockRecord {
     diskstats: Option<String>,
     partitions: Option<String>,
     pressure_io: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    block_device_info: Option<String>,
+}
+
+#[derive(Serialize)]
+struct BlockDeviceInfo {
+    name: String,
+    scheduler: Option<String>,
+    nr_requests: Option<String>,
+    read_ahead_kb: Option<String>,
+    rotational: Option<String>,
+    max_sectors_kb: Option<String>,
+    stat: Option<String>,
+    dm_name: Option<String>,
+    dm_uuid: Option<String>,
+    dm_suspended: Option<String>,
+    loop_backing_file: Option<String>,
+    zram_disksize: Option<String>,
+    zram_comp_algorithm: Option<String>,
+    zram_mm_stat: Option<String>,
 }
 
 const FILES: &[&str] = &[
@@ -55,11 +75,14 @@ impl Block {
             std::fs::read_to_string(roots.resolve(path)).ok()
         }
 
+        let block_device_info = enumerate_block_devices(&probe.roots);
+
         let record = BlockRecord {
             collection: "RT-10",
             diskstats: read_raw(&probe.roots, FILES[0]),
             partitions: read_raw(&probe.roots, FILES[1]),
             pressure_io: read_raw(&probe.roots, FILES[2]),
+            block_device_info,
         };
 
         let writer = match output.json_writer("block.json") {
@@ -122,5 +145,72 @@ impl Block {
             boot_id: None,
             uptime_seconds: None,
         }
+    }
+}
+
+fn enumerate_block_devices(roots: &FsRoots) -> Option<String> {
+    let block_dir = roots.resolve("/sys/block");
+    let dir = std::fs::read_dir(&block_dir).ok()?;
+    let mut devices: Vec<BlockDeviceInfo> = Vec::new();
+
+    for entry in dir.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name == "." || name == ".." {
+            continue;
+        }
+        let base = entry.path();
+
+        let read_attr = |rel: &str| -> Option<String> {
+            std::fs::read_to_string(base.join(rel)).ok()
+        };
+
+        let scheduler = read_attr("queue/scheduler");
+        let nr_requests = read_attr("queue/nr_requests");
+        let read_ahead_kb = read_attr("queue/read_ahead_kb");
+        let rotational = read_attr("queue/rotational");
+        let max_sectors_kb = read_attr("queue/max_sectors_kb");
+        let stat = read_attr("stat");
+
+        let dm = name.starts_with("dm-");
+        let dm_name = if dm { read_attr("dm/name") } else { None };
+        let dm_uuid = if dm { read_attr("dm/uuid") } else { None };
+        let dm_suspended = if dm { read_attr("dm/suspended") } else { None };
+
+        let is_loop = name.starts_with("loop");
+        let loop_backing_file = if is_loop {
+            std::fs::read_link(base.join("loop/backing_file"))
+                .ok()
+                .map(|p| p.to_string_lossy().into_owned())
+        } else {
+            None
+        };
+
+        let is_zram = name.starts_with("zram");
+        let zram_disksize = if is_zram { read_attr("disksize") } else { None };
+        let zram_comp_algorithm = if is_zram { read_attr("comp_algorithm") } else { None };
+        let zram_mm_stat = if is_zram { read_attr("mm_stat") } else { None };
+
+        devices.push(BlockDeviceInfo {
+            name,
+            scheduler,
+            nr_requests,
+            read_ahead_kb,
+            rotational,
+            max_sectors_kb,
+            stat,
+            dm_name,
+            dm_uuid,
+            dm_suspended,
+            loop_backing_file,
+            zram_disksize,
+            zram_comp_algorithm,
+            zram_mm_stat,
+        });
+    }
+
+    if devices.is_empty() {
+        None
+    } else {
+        serde_json::to_string(&devices).ok()
     }
 }

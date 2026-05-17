@@ -148,7 +148,7 @@ impl CollectionTask {
             CollectionTask::Cache(_) => "caches.json",
             CollectionTask::Cpu(_) => "cpu.json",
             CollectionTask::Device(_) => "devices.json",
-            CollectionTask::Events(_) => "dmesg.txt",
+            CollectionTask::Events(_) => "dmesg.json",
             CollectionTask::Fd(_) => "fds.json",
             CollectionTask::IpcNsCg(_) => "ipc_ns_cg.json",
             CollectionTask::Kernel(_) => "kernel.json",

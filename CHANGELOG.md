@@ -4,6 +4,45 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-17 - 补齐 0.1.0 必采项覆盖：14 个 collector 扩展至决策文档完整必采
+
+- **类型**：实现
+- **范围**：`src/collector/*` 14 个 collector、`docs/decisions/0003-*`、`docs/decisions/0004-*`、`tests/fixtures/`
+- **提交信息**：`feat(collector): complete mandatory collection items for 0.1.0`
+
+### 变更内容
+
+**新增采集字段（按 RT 分类）**：
+
+- RT-02 kernel：watchdog、kexec/crash、hung_task、sysrq、panic_on_oops（10 个新 `/proc/sys/kernel/` 文件 + 2 个 `/sys/kernel/` 文件）
+- RT-04 process：per-process rlimits、sched/schedstat、namespace 引用（8 ns types）、cgroup、oom_score/adj、loginuid（15 个新字段）
+- RT-05 cpu：per-CPU online 状态、topology core_id/thread_siblings（`/sys/devices/system/cpu/cpu*/` 目录枚举）
+- RT-06 memory：NUMA node stats、zram/zswap stats、THP 配置、OOM 策略、vm sysctl（16 个新字段 + `/sys/devices/system/node/` 枚举）
+- RT-10 block：per-device queue 参数、dm/LVM/zram 设备类型（`/sys/block/*/queue/` 枚举）
+- RT-13 netfilter：iptables tables/matches/targets、ebtables、XFRM（6 个新 procfs 文件）
+- RT-14 ipc_ns_cg：cgroup v1/v2 层级树（controllers/limits/pressure/events）、深度限制枚举（3 级/50 条上限）
+- RT-15 session：utmp/wtmp/btmp 二进制记录解析（384 字节 per-record 结构体，零外部 crate）
+- RT-16 security：LSM 状态、seccomp 统计、audit backlog、IMA、lockdown、selinux enforce（15 个新字段）
+- RT-17 device：`/sys/devices/` 设备树深度遍历（depth=3、100 条上限）、uevent/driver/modalias
+- RT-18 power：CPU 频率/governor、thermal zone、throttle、EDAC 错误计数（4 类目录枚举）
+- RT-19 time：clocksource、RTC sysfs（`/sys/devices/system/clocksource/`）
+- RT-20 events：printk 控制参数、dmesg 输出从 txt→json（含 collection/printk 元数据）
+
+### 设计影响
+
+- 必采项覆盖从 ~50% 提升至 >95%（仅 nftables 规则内容因需要 netlink 暂缓至 0.2.0）
+- ADR 0003 暂缓表更新：nftables 标注为 procfs 替代 + netlink 暂缓
+- session.rs 使用固定偏移量解析 utmp 二进制记录（x86_64 Linux 特化），零外部 crate
+- 所有目录遍历均设深度/条目上限，符合有界执行约束
+- dmesg 输出从 `dmesg.txt` 改为 `dmesg.json`（含结构化元数据 + dmesg 文本）
+
+### 验证
+
+- `cargo build --release` 零 warning，`cargo clippy` 零 warning
+- `scripts/verify.sh` exit 0（含 `cargo test` 4/4 通过）
+- `cargo run --release -- /tmp` 生成完整 tar.gz，运行时正确
+- fixtures 同步更新（normal/partial/malformed 三个场景全部覆盖）
+
 ## 2026-05-17 - Phase E：测试体系建立，mock fixtures + 集成测试 + CI 接入
 
 - **类型**：实现 / 测试
