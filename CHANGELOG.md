@@ -4,6 +4,36 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-17 - 第二轮审计修复：probe 降级传播、架构表同步
+
+- **类型**：修复 / 文档
+- **范围**：`src/collector/process.rs`、`docs/collector-architecture.md`
+- **提交信息**：`fix(collector): merge probe degradation in process, sync architecture RT table`
+
+### 变更内容
+
+- `process.rs`：最终状态合并 `probe.degraded`（probe 阶段标记的降级不再被静默丢弃）
+- `docs/collector-architecture.md` RT 映射表 6 处同步：
+  - RT-02：移除误标的 `+ procfs`（kernel.rs 仅用 std::fs）
+  - RT-06：补标 `+ procfs`（memory.rs 使用 `procfs::Meminfo`）
+  - RT-11：补漏 `/proc/net/ipv6_route`
+  - RT-12：补漏 `/proc/net/raw6`、`/proc/net/snmp6`
+  - RT-13：补漏 `/proc/sys/net/nf_conntrack_max`
+  - RT-20：补漏 `/proc/sys/kernel/printk`
+
+### 设计影响
+
+- RT 映射表现在与实际代码实现完全一致，可作为接口权威参考
+- 所有 21 个 collector 的 probe 降级信息均正确传播到最终 CollectionOutcome
+
+### 验证
+
+- `cargo build --release` 编译通过（零 warning），`cargo clippy` 零 warning
+- `scripts/verify.sh` exit 0
+- `cargo run --release -- /tmp` 生成 22 文件 tar.gz
+
+---
+
 ## 2026-05-17 - 多维度审计修复：ADR 对齐、依赖清理、代码规范化
 
 - **类型**：修复 / 文档 / 工程化

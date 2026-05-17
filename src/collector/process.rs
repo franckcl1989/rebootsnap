@@ -134,8 +134,12 @@ impl Process {
             CollectionStatus::Truncated {
                 reason: reason.into(),
             }
-        } else {
+        } else if probe.degraded.is_empty() {
             CollectionStatus::Ok
+        } else {
+            CollectionStatus::Degraded {
+                missing: probe.degraded.clone(),
+            }
         };
 
         CollectionOutcome {

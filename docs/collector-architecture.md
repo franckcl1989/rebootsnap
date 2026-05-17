@@ -187,25 +187,25 @@ impl OutputDir {
 | RT | 大类 | 主要接口 | 主要 crate | 输出格式 |
 | --- | --- | --- | --- | --- |
 | RT-01 | 启动实例身份 | `/proc/sys/kernel/random/boot_id`, `/proc/uptime`, `/proc/version`, `/proc/cmdline`, `/proc/sys/kernel/hostname` | std::fs | JSON |
-| RT-02 | 内核状态 | `/proc/sys/`, `/proc/modules` | std::fs + `procfs` | JSON |
+| RT-02 | 内核状态 | `/proc/sys/` 下的 ostype, osrelease, tainted, core_pattern, panic, printk 等参数；`/proc/modules` | std::fs | JSON |
 | RT-03 | 初始化系统 | org.freedesktop.systemd1 D-Bus | `zbus` | JSON |
 | RT-04 | 进程与线程 | `/proc/[pid]/*` | `procfs` | JSONL |
 | RT-05 | CPU 与调度 | `/proc/stat`, `/proc/loadavg`, `/proc/pressure/cpu`, `/proc/interrupts`, `/proc/softirqs` | std::fs | JSON |
-| RT-06 | 内存 | `/proc/meminfo`, `/proc/pressure/memory`, `/proc/vmstat`, `/proc/zoneinfo` | `std::fs` | JSON |
+| RT-06 | 内存 | `/proc/meminfo`（含 `procfs::Meminfo` 提取 MemTotal/MemAvailable），`/proc/pressure/memory`, `/proc/vmstat`, `/proc/zoneinfo` | std::fs + `procfs` | JSON |
 | RT-07 | 打开句柄 | `/proc/sys/fs/file-nr`, `/proc/sys/fs/file-max`, `/proc/sys/fs/inode-nr`, `/proc/sys/fs/inode-max`, `/proc/locks` | std::fs | JSON |
 | RT-08 | 临时文件系统 | `/proc/mounts`, `/run`, `/dev/shm`, `/tmp` 目录项计数 | std::fs | JSON |
 | RT-09 | VFS 与挂载 | `/proc/self/mountinfo`, `/proc/self/mounts`, `/proc/self/mountstats`, `/proc/filesystems` | std::fs | JSON |
 | RT-10 | 块设备 | `/proc/diskstats`, `/proc/partitions`, `/proc/pressure/io` | std::fs | JSON |
-| RT-11 | 网络接口 | `/sys/class/net/*`（接口属性 + 统计），`/proc/net/route`, `/proc/net/arp`, `/proc/net/netstat` | std::fs | JSON |
-| RT-12 | socket | `/proc/net/tcp`, `/proc/net/tcp6`, `/proc/net/udp`, `/proc/net/udp6`, `/proc/net/unix`, `/proc/net/raw`, `/proc/net/snmp` | std::fs | JSON |
-| RT-13 | 包过滤 | `/proc/net/nf_conntrack`, `/proc/net/stat/nf_conntrack`, `/proc/net/nf_tables_names`, `/proc/net/xfrm_stat` | std::fs | JSON |
+| RT-11 | 网络接口 | `/sys/class/net/*`（接口属性 + 统计），`/proc/net/route`, `/proc/net/ipv6_route`, `/proc/net/arp`, `/proc/net/netstat` | std::fs | JSON |
+| RT-12 | socket | `/proc/net/tcp`, `/proc/net/tcp6`, `/proc/net/udp`, `/proc/net/udp6`, `/proc/net/unix`, `/proc/net/raw`, `/proc/net/raw6`, `/proc/net/snmp`, `/proc/net/snmp6` | std::fs | JSON |
+| RT-13 | 包过滤 | `/proc/net/nf_conntrack`, `/proc/net/stat/nf_conntrack`, `/proc/sys/net/nf_conntrack_max`, `/proc/net/nf_tables_names`, `/proc/net/xfrm_stat` | std::fs | JSON |
 | RT-14 | IPC/ns/cgroup | `/proc/cgroups`, `/proc/sysvipc/msg`, `/proc/sysvipc/sem`, `/proc/sysvipc/shm` | std::fs | JSON |
 | RT-15 | 用户会话 | `/var/run/utmp`（文件大小与 mtime），`/etc/passwd`, `/etc/group` | std::fs | JSON |
 | RT-16 | 安全策略 | `/proc/sys/kernel/random/entropy_avail`, `/proc/sys/kernel/random/poolsize`, `/proc/sys/kernel/cap_last_cap`, `/proc/sys/crypto/fips_enabled` | std::fs | JSON |
 | RT-17 | 设备 | `/proc/devices`, `/proc/iomem` | std::fs | JSON |
 | RT-18 | 电源 | `/sys/power/state`, `/sys/power/disk` | std::fs | JSON |
 | RT-19 | 时间 | `/proc/timer_list`, `/sys/class/rtc/rtc0/date`, `/sys/class/rtc/rtc0/time` | std::fs | JSON |
-| RT-20 | 易失事件缓冲 | `/dev/kmsg`（内核环形缓冲区直读） | std::fs | .txt |
+| RT-20 | 易失事件缓冲 | `/dev/kmsg`（内核环形缓冲区直读），`/proc/sys/kernel/printk`（日志级别） | std::fs | .txt |
 | RT-21 | OS 缓存 | `/proc/slabinfo`, `/proc/meminfo` | std::fs | JSON |
 
 ## 实现阶段与优先级
