@@ -1,38 +1,40 @@
 use serde::Serialize;
 use std::time::Instant;
 
-use procfs::Current;
-
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::output::OutputDir;
 
-pub struct Memory;
+pub struct Socket;
 
 #[derive(Serialize)]
-struct MeminfoEntry {
-    key: String,
-    value_kb: i64,
-}
-
-#[derive(Serialize)]
-struct MemoryRecord {
+struct SocketRecord {
     collection: &'static str,
-    meminfo: Vec<MeminfoEntry>,
-    pressure_memory: Option<String>,
-    vmstat: Option<String>,
-    zoneinfo: Option<String>,
+    tcp: Option<String>,
+    tcp6: Option<String>,
+    udp: Option<String>,
+    udp6: Option<String>,
+    unix: Option<String>,
+    raw: Option<String>,
+    raw6: Option<String>,
+    snmp: Option<String>,
+    snmp6: Option<String>,
 }
 
 const FILES: &[&str] = &[
-    "/proc/meminfo",
-    "/proc/pressure/memory",
-    "/proc/vmstat",
-    "/proc/zoneinfo",
+    "/proc/net/tcp",
+    "/proc/net/tcp6",
+    "/proc/net/udp",
+    "/proc/net/udp6",
+    "/proc/net/unix",
+    "/proc/net/raw",
+    "/proc/net/raw6",
+    "/proc/net/snmp",
+    "/proc/net/snmp6",
 ];
 
-impl Memory {
+impl Socket {
     pub async fn probe(&self) -> ProbeOutcome {
-        probe_files(FILES, "all memory files missing")
+        probe_files(FILES, "all net socket files missing")
     }
 
     pub async fn collect(
@@ -63,39 +65,20 @@ impl Memory {
             std::fs::read_to_string(path).ok()
         }
 
-        let pmi = procfs::Meminfo::current().ok();
-        let mem_total_kb = pmi.as_ref().map(|m| (m.mem_total / 1024) as i64);
-        let mem_available_kb = pmi
-            .as_ref()
-            .and_then(|m| m.mem_available.map(|v| (v / 1024) as i64));
-
-        let mut entries: Vec<MeminfoEntry> = Vec::new();
-        if let Some(raw) = read_raw(FILES[0]) {
-            for line in raw.lines() {
-                let Some((key, val)) = line.split_once(':') else {
-                    continue;
-                };
-                let key = key.trim().to_string();
-                let val_str = val.trim();
-                let value_kb = val_str
-                    .split_whitespace()
-                    .next()
-                    .and_then(|s| s.parse::<i64>().ok())
-                    .unwrap_or(0);
-                entries.push(MeminfoEntry { key, value_kb });
-            }
-        }
-        entries.sort_by(|a, b| a.key.cmp(&b.key));
-
-        let record = MemoryRecord {
-            collection: "RT-06",
-            meminfo: entries,
-            pressure_memory: read_raw(FILES[1]),
-            vmstat: read_raw(FILES[2]),
-            zoneinfo: read_raw(FILES[3]),
+        let record = SocketRecord {
+            collection: "RT-12",
+            tcp: read_raw(FILES[0]),
+            tcp6: read_raw(FILES[1]),
+            udp: read_raw(FILES[2]),
+            udp6: read_raw(FILES[3]),
+            unix: read_raw(FILES[4]),
+            raw: read_raw(FILES[5]),
+            raw6: read_raw(FILES[6]),
+            snmp: read_raw(FILES[7]),
+            snmp6: read_raw(FILES[8]),
         };
 
-        let writer = match output.json_writer("memory.json") {
+        let writer = match output.json_writer("sockets.json") {
             Ok(w) => w,
             Err(e) => {
                 return CollectionOutcome {
@@ -106,8 +89,8 @@ impl Memory {
                     file_size: 0,
                     items_total: None,
                     items_collected: None,
-                    mem_total_kb,
-                    mem_available_kb,
+                    mem_total_kb: None,
+                    mem_available_kb: None,
                     hostname: None,
                     kernel_version: None,
                     boot_id: None,
@@ -126,8 +109,8 @@ impl Memory {
                     file_size: 0,
                     items_total: None,
                     items_collected: None,
-                    mem_total_kb,
-                    mem_available_kb,
+                    mem_total_kb: None,
+                    mem_available_kb: None,
                     hostname: None,
                     kernel_version: None,
                     boot_id: None,
@@ -148,8 +131,8 @@ impl Memory {
             file_size: size,
             items_total: None,
             items_collected: None,
-            mem_total_kb,
-            mem_available_kb,
+            mem_total_kb: None,
+            mem_available_kb: None,
             hostname: None,
             kernel_version: None,
             boot_id: None,

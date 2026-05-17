@@ -1,38 +1,62 @@
 use serde::Serialize;
 use std::time::Instant;
 
-use procfs::Current;
-
-use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
+use crate::collector::{CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::output::OutputDir;
 
-pub struct Memory;
+pub struct Tmpfs;
 
 #[derive(Serialize)]
-struct MeminfoEntry {
-    key: String,
-    value_kb: i64,
-}
-
-#[derive(Serialize)]
-struct MemoryRecord {
+struct TmpfsRecord {
     collection: &'static str,
-    meminfo: Vec<MeminfoEntry>,
-    pressure_memory: Option<String>,
-    vmstat: Option<String>,
-    zoneinfo: Option<String>,
+    mounts: Option<String>,
+    run_entries: Option<u64>,
+    dev_shm_entries: Option<u64>,
+    tmp_entries: Option<u64>,
 }
 
-const FILES: &[&str] = &[
-    "/proc/meminfo",
-    "/proc/pressure/memory",
-    "/proc/vmstat",
-    "/proc/zoneinfo",
-];
+const MOUNTS_FILE: &str = "/proc/mounts";
+const RUNTIME_DIRS: &[&str] = &["/run", "/dev/shm", "/tmp"];
 
-impl Memory {
+fn count_dir(path: &str) -> Option<u64> {
+    let entries = std::fs::read_dir(path).ok()?;
+    Some(entries.flatten().count() as u64)
+}
+
+impl Tmpfs {
     pub async fn probe(&self) -> ProbeOutcome {
-        probe_files(FILES, "all memory files missing")
+        let mounts_exists = std::path::Path::new(MOUNTS_FILE).exists();
+        if !mounts_exists {
+            return ProbeOutcome {
+                available: false,
+                degraded: Vec::new(),
+                reason: Some("all tmpfs files missing".into()),
+            };
+        }
+        let degraded: Vec<String> = RUNTIME_DIRS
+            .iter()
+            .filter(|d| !std::path::Path::new(d).exists())
+            .map(|s| s.to_string())
+            .collect();
+        if degraded.len() == RUNTIME_DIRS.len() {
+            ProbeOutcome {
+                available: false,
+                degraded: Vec::new(),
+                reason: Some("all tmpfs runtime dirs missing".into()),
+            }
+        } else if degraded.is_empty() {
+            ProbeOutcome {
+                available: true,
+                degraded: Vec::new(),
+                reason: None,
+            }
+        } else {
+            ProbeOutcome {
+                available: true,
+                degraded,
+                reason: None,
+            }
+        }
     }
 
     pub async fn collect(
@@ -63,39 +87,15 @@ impl Memory {
             std::fs::read_to_string(path).ok()
         }
 
-        let pmi = procfs::Meminfo::current().ok();
-        let mem_total_kb = pmi.as_ref().map(|m| (m.mem_total / 1024) as i64);
-        let mem_available_kb = pmi
-            .as_ref()
-            .and_then(|m| m.mem_available.map(|v| (v / 1024) as i64));
-
-        let mut entries: Vec<MeminfoEntry> = Vec::new();
-        if let Some(raw) = read_raw(FILES[0]) {
-            for line in raw.lines() {
-                let Some((key, val)) = line.split_once(':') else {
-                    continue;
-                };
-                let key = key.trim().to_string();
-                let val_str = val.trim();
-                let value_kb = val_str
-                    .split_whitespace()
-                    .next()
-                    .and_then(|s| s.parse::<i64>().ok())
-                    .unwrap_or(0);
-                entries.push(MeminfoEntry { key, value_kb });
-            }
-        }
-        entries.sort_by(|a, b| a.key.cmp(&b.key));
-
-        let record = MemoryRecord {
-            collection: "RT-06",
-            meminfo: entries,
-            pressure_memory: read_raw(FILES[1]),
-            vmstat: read_raw(FILES[2]),
-            zoneinfo: read_raw(FILES[3]),
+        let record = TmpfsRecord {
+            collection: "RT-08",
+            mounts: read_raw(MOUNTS_FILE),
+            run_entries: count_dir(RUNTIME_DIRS[0]),
+            dev_shm_entries: count_dir(RUNTIME_DIRS[1]),
+            tmp_entries: count_dir(RUNTIME_DIRS[2]),
         };
 
-        let writer = match output.json_writer("memory.json") {
+        let writer = match output.json_writer("tmpfs.json") {
             Ok(w) => w,
             Err(e) => {
                 return CollectionOutcome {
@@ -106,8 +106,8 @@ impl Memory {
                     file_size: 0,
                     items_total: None,
                     items_collected: None,
-                    mem_total_kb,
-                    mem_available_kb,
+                    mem_total_kb: None,
+                    mem_available_kb: None,
                     hostname: None,
                     kernel_version: None,
                     boot_id: None,
@@ -126,8 +126,8 @@ impl Memory {
                     file_size: 0,
                     items_total: None,
                     items_collected: None,
-                    mem_total_kb,
-                    mem_available_kb,
+                    mem_total_kb: None,
+                    mem_available_kb: None,
                     hostname: None,
                     kernel_version: None,
                     boot_id: None,
@@ -148,8 +148,8 @@ impl Memory {
             file_size: size,
             items_total: None,
             items_collected: None,
-            mem_total_kb,
-            mem_available_kb,
+            mem_total_kb: None,
+            mem_available_kb: None,
             hostname: None,
             kernel_version: None,
             boot_id: None,

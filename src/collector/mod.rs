@@ -1,10 +1,28 @@
 use std::time::Duration;
 
+pub mod block;
 pub mod boot;
+pub mod cache;
 pub mod cpu;
+pub mod device;
+pub mod events;
+pub mod fd;
+pub mod ipc_ns_cg;
+pub mod kernel;
 pub mod memory;
+pub mod mount;
+pub mod netdev;
+pub mod netfilter;
+pub mod power;
 pub mod process;
+pub mod security;
+pub mod session;
+pub mod socket;
 pub mod systemd;
+pub mod time;
+pub mod tmpfs;
+
+use crate::output::OutputDir;
 
 #[derive(Debug, Clone)]
 pub struct ProbeOutcome {
@@ -13,7 +31,7 @@ pub struct ProbeOutcome {
     pub reason: Option<String>,
 }
 
-fn probe_files(files: &[&str], all_missing_msg: &str) -> ProbeOutcome {
+pub fn probe_files(files: &[&str], all_missing_msg: &str) -> ProbeOutcome {
     let degraded: Vec<String> = files
         .iter()
         .filter(|f| !std::path::Path::new(f).exists())
@@ -67,31 +85,79 @@ pub enum CollectionStatus {
 }
 
 pub enum CollectionTask {
+    Block(block::Block),
     Boot(boot::Boot),
+    Cache(cache::Cache),
     Cpu(cpu::Cpu),
+    Device(device::Device),
+    Events(events::Events),
+    Fd(fd::Fd),
+    IpcNsCg(ipc_ns_cg::IpcNsCg),
+    Kernel(kernel::Kernel),
     Memory(memory::Memory),
+    Mount(mount::Mount),
+    Netdev(netdev::Netdev),
+    Netfilter(netfilter::Netfilter),
+    Power(power::Power),
     Process(process::Process),
+    Security(security::Security),
+    Session(session::Session),
+    Socket(socket::Socket),
     Systemd(systemd::Systemd),
+    Time(time::Time),
+    Tmpfs(tmpfs::Tmpfs),
 }
 
 impl CollectionTask {
     pub fn id(&self) -> &'static str {
         match self {
+            CollectionTask::Block(_) => "RT-10",
             CollectionTask::Boot(_) => "RT-01",
+            CollectionTask::Cache(_) => "RT-21",
             CollectionTask::Cpu(_) => "RT-05",
+            CollectionTask::Device(_) => "RT-17",
+            CollectionTask::Events(_) => "RT-20",
+            CollectionTask::Fd(_) => "RT-07",
+            CollectionTask::IpcNsCg(_) => "RT-14",
+            CollectionTask::Kernel(_) => "RT-02",
             CollectionTask::Memory(_) => "RT-06",
+            CollectionTask::Mount(_) => "RT-09",
+            CollectionTask::Netdev(_) => "RT-11",
+            CollectionTask::Netfilter(_) => "RT-13",
+            CollectionTask::Power(_) => "RT-18",
             CollectionTask::Process(_) => "RT-04",
+            CollectionTask::Security(_) => "RT-16",
+            CollectionTask::Session(_) => "RT-15",
+            CollectionTask::Socket(_) => "RT-12",
             CollectionTask::Systemd(_) => "RT-03",
+            CollectionTask::Time(_) => "RT-19",
+            CollectionTask::Tmpfs(_) => "RT-08",
         }
     }
 
     pub fn filename(&self) -> &'static str {
         match self {
+            CollectionTask::Block(_) => "block.json",
             CollectionTask::Boot(_) => "boot.json",
+            CollectionTask::Cache(_) => "cache.json",
             CollectionTask::Cpu(_) => "cpu.json",
+            CollectionTask::Device(_) => "device.json",
+            CollectionTask::Events(_) => "events.json",
+            CollectionTask::Fd(_) => "fd.json",
+            CollectionTask::IpcNsCg(_) => "ipc_ns_cg.json",
+            CollectionTask::Kernel(_) => "kernel.json",
             CollectionTask::Memory(_) => "memory.json",
+            CollectionTask::Mount(_) => "mount.json",
+            CollectionTask::Netdev(_) => "netdev.json",
+            CollectionTask::Netfilter(_) => "netfilter.json",
+            CollectionTask::Power(_) => "power.json",
             CollectionTask::Process(_) => "processes.jsonl",
+            CollectionTask::Security(_) => "security.json",
+            CollectionTask::Session(_) => "session.json",
+            CollectionTask::Socket(_) => "sockets.json",
             CollectionTask::Systemd(_) => "systemd.json",
+            CollectionTask::Time(_) => "time.json",
+            CollectionTask::Tmpfs(_) => "tmpfs.json",
         }
     }
 
@@ -99,6 +165,9 @@ impl CollectionTask {
         match self {
             CollectionTask::Process(_) => Duration::from_secs(10),
             CollectionTask::Memory(_) => Duration::from_secs(10),
+            CollectionTask::Netdev(_) => Duration::from_secs(10),
+            CollectionTask::Netfilter(_) => Duration::from_secs(5),
+            CollectionTask::Socket(_) => Duration::from_secs(5),
             CollectionTask::Systemd(_) => Duration::from_secs(5),
             _ => Duration::from_secs(2),
         }
@@ -106,11 +175,53 @@ impl CollectionTask {
 
     pub async fn probe(&self) -> ProbeOutcome {
         match self {
+            CollectionTask::Block(c) => c.probe().await,
             CollectionTask::Boot(c) => c.probe().await,
+            CollectionTask::Cache(c) => c.probe().await,
             CollectionTask::Cpu(c) => c.probe().await,
+            CollectionTask::Device(c) => c.probe().await,
+            CollectionTask::Events(c) => c.probe().await,
+            CollectionTask::Fd(c) => c.probe().await,
+            CollectionTask::IpcNsCg(c) => c.probe().await,
+            CollectionTask::Kernel(c) => c.probe().await,
             CollectionTask::Memory(c) => c.probe().await,
+            CollectionTask::Mount(c) => c.probe().await,
+            CollectionTask::Netdev(c) => c.probe().await,
+            CollectionTask::Netfilter(c) => c.probe().await,
+            CollectionTask::Power(c) => c.probe().await,
             CollectionTask::Process(c) => c.probe().await,
+            CollectionTask::Security(c) => c.probe().await,
+            CollectionTask::Session(c) => c.probe().await,
+            CollectionTask::Socket(c) => c.probe().await,
             CollectionTask::Systemd(c) => c.probe().await,
+            CollectionTask::Time(c) => c.probe().await,
+            CollectionTask::Tmpfs(c) => c.probe().await,
+        }
+    }
+
+    pub async fn collect(&self, output: &OutputDir, probe: &ProbeOutcome) -> CollectionOutcome {
+        match self {
+            CollectionTask::Block(c) => c.collect(output, probe).await,
+            CollectionTask::Boot(c) => c.collect(output, probe).await,
+            CollectionTask::Cache(c) => c.collect(output, probe).await,
+            CollectionTask::Cpu(c) => c.collect(output, probe).await,
+            CollectionTask::Device(c) => c.collect(output, probe).await,
+            CollectionTask::Events(c) => c.collect(output, probe).await,
+            CollectionTask::Fd(c) => c.collect(output, probe).await,
+            CollectionTask::IpcNsCg(c) => c.collect(output, probe).await,
+            CollectionTask::Kernel(c) => c.collect(output, probe).await,
+            CollectionTask::Memory(c) => c.collect(output, probe).await,
+            CollectionTask::Mount(c) => c.collect(output, probe).await,
+            CollectionTask::Netdev(c) => c.collect(output, probe).await,
+            CollectionTask::Netfilter(c) => c.collect(output, probe).await,
+            CollectionTask::Power(c) => c.collect(output, probe).await,
+            CollectionTask::Process(c) => c.collect(output, probe).await,
+            CollectionTask::Security(c) => c.collect(output, probe).await,
+            CollectionTask::Session(c) => c.collect(output, probe).await,
+            CollectionTask::Socket(c) => c.collect(output, probe).await,
+            CollectionTask::Systemd(c) => c.collect(output, probe).await,
+            CollectionTask::Time(c) => c.collect(output, probe).await,
+            CollectionTask::Tmpfs(c) => c.collect(output, probe).await,
         }
     }
 }

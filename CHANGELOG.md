@@ -4,6 +4,40 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-17 - Phase C+D：实现全部 17 个采集器，完成 RT-01 至 RT-21 全覆盖
+
+- **类型**：实现
+- **范围**：`src/collector/` （17 个新文件）、`src/collector/mod.rs`、`src/main.rs`、`Cargo.toml`
+- **提交信息**：`feat(collector): implement Phase C+D all 17 remaining collectors`
+
+### 变更内容
+
+- Phase C（netlink 通路）：新增 `socket.rs`（RT-12）、`netdev.rs`（RT-11，sysfs 回退）、`netfilter.rs`（RT-13）
+- Phase D（批量收尾）：新增 13 个 collector — `block.rs`（RT-10）、`cache.rs`（RT-21）、`device.rs`（RT-17）、`events.rs`（RT-20）、`fd.rs`（RT-07）、`ipc_ns_cg.rs`（RT-14）、`kernel.rs`（RT-02）、`mount.rs`（RT-09）、`power.rs`（RT-18）、`security.rs`（RT-16）、`session.rs`（RT-15）、`time.rs`（RT-19）、`tmpfs.rs`（RT-08）
+- `memory.rs`：使用 `procfs::Meminfo::current()` 类型安全提取 MemTotal / MemAvailable
+- `mod.rs`：`CollectionTask` enum 扩展至 21 变体，新增 `collect()` 方法实现 unified dispatch
+- `main.rs`：重构为循环驱动模式（`tasks.into_iter().enumerate()`），消除 20 个独立 spawn block
+- `main.rs`：manifest probe 改为 `HashMap` 动态查找，不再硬编码 p0..p7 索引
+- `Cargo.toml`：移除未使用的直接 `futures` 和 `netlink-packet-route` 依赖
+- `events.rs`：`/dev/kmsg` 直读替代 nix klogctl（避免 feature flag 复杂度）
+
+### 设计影响
+
+- RT-01 至 RT-21 全部 21 个大类已实现，每个 collector 遵循统一的 probe→collect 模式
+- `all_tasks()` 返回 21 元素数组，新增 collector 只需追加元素和匹配分支
+- 主循环采用 `into_iter()` 消费式遍历 + `JoinSet` 并发，probe 结果通过 `Vec<(&str, ProbeOutcome)>` 索引匹配
+- RT-11（netdev）回退为 sysfs 读取（`/sys/class/net/*`），因 rtnetlink 0.21 与 netlink-packet-route 0.30 API 变更较大
+- 架构文档中 Phase C/D 已全部实现，Phase E（测试）为下一阶段
+
+### 验证
+
+- `cargo build --release` 编译通过（零 warning），`cargo clippy` 零 warning
+- `cargo run --release -- /tmp` 生成 23 文件 tar.gz（21 collector + manifest + summary）
+- `scripts/verify.sh` exit 0
+- 输出大小 72 KiB（tar.gz），全链路 runtime 验证通过
+
+---
+
 ## 2026-05-17 - Phase B：实现 RT-03 systemd D-Bus 采集器
 
 - **类型**：实现

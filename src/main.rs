@@ -11,8 +11,9 @@ mod error;
 mod output;
 
 use collector::{
-    boot::Boot, cpu::Cpu, memory::Memory, process::Process, systemd::Systemd,
-    CollectionOutcome, CollectionStatus, CollectionTask, ProbeOutcome,
+    boot::Boot, cpu::Cpu, memory::Memory, netdev::Netdev, netfilter::Netfilter,
+    process::Process, socket::Socket, systemd::Systemd, CollectionOutcome,
+    CollectionStatus, CollectionTask, ProbeOutcome,
 };
 use error::ArchiveError;
 use output::OutputDir;
@@ -108,13 +109,29 @@ fn loadavg() -> (Option<f64>, Option<f64>, Option<f64>) {
     )
 }
 
-fn all_tasks() -> [CollectionTask; 5] {
+fn all_tasks() -> [CollectionTask; 21] {
     [
         CollectionTask::Boot(Boot),
-        CollectionTask::Systemd(Systemd),
-        CollectionTask::Process(Process),
+        CollectionTask::Block(collector::block::Block),
+        CollectionTask::Cache(collector::cache::Cache),
         CollectionTask::Cpu(Cpu),
+        CollectionTask::Device(collector::device::Device),
+        CollectionTask::Events(collector::events::Events),
+        CollectionTask::Fd(collector::fd::Fd),
+        CollectionTask::IpcNsCg(collector::ipc_ns_cg::IpcNsCg),
+        CollectionTask::Kernel(collector::kernel::Kernel),
         CollectionTask::Memory(Memory),
+        CollectionTask::Mount(collector::mount::Mount),
+        CollectionTask::Netdev(Netdev),
+        CollectionTask::Netfilter(Netfilter),
+        CollectionTask::Power(collector::power::Power),
+        CollectionTask::Process(Process),
+        CollectionTask::Security(collector::security::Security),
+        CollectionTask::Session(collector::session::Session),
+        CollectionTask::Socket(Socket),
+        CollectionTask::Systemd(Systemd),
+        CollectionTask::Time(collector::time::Time),
+        CollectionTask::Tmpfs(collector::tmpfs::Tmpfs),
     ]
 }
 
@@ -195,102 +212,29 @@ async fn main() {
         .map(|t| (t.id(), t.filename(), t.item_timeout()))
         .collect();
 
-    let mut probes = Vec::with_capacity(tasks.len());
+    let mut probe_pairs: Vec<(&str, ProbeOutcome)> = Vec::with_capacity(tasks.len());
     for task in &tasks {
-        probes.push(task.probe().await);
+        probe_pairs.push((task.id(), task.probe().await));
     }
-
-    let [p0, p1, p2, p3, p4] = match <[ProbeOutcome; 5]>::try_from(probes) {
-        Ok(a) => a,
-        Err(_) => {
-            tracing::error!("probe count changed unexpectedly");
-            process::exit(1);
-        }
-    };
+    let probe_map: std::collections::HashMap<&str, &ProbeOutcome> = probe_pairs
+        .iter()
+        .map(|(id, p)| (*id, p))
+        .collect();
 
     let mut set = tokio::task::JoinSet::new();
 
-    {
+    for (i, task) in tasks.into_iter().enumerate() {
         let root = manifest_dir.clone();
-        let probe = p0;
+        let id = task.id().to_string();
+        let filename = task.filename().to_string();
+        let timeout_secs = task.item_timeout();
+        let probe = probe_pairs[i].1.clone();
         set.spawn(async move {
             let output = OutputDir::from_existing(root);
-            let outcome = tokio::time::timeout(
-                std::time::Duration::from_secs(2),
-                Boot.collect(&output, &probe),
-            )
-            .await
-            .unwrap_or_else(|_| timed_out_outcome());
-            ("RT-01".to_string(), "boot.json".to_string(), outcome)
-        });
-    }
-    let p1_systemd_available = p1.available;
-    let p1_systemd_reason = p1.reason.clone();
-    {
-        let root = manifest_dir.clone();
-        let probe = p1;
-        let item_timeout = std::time::Duration::from_secs(5);
-        set.spawn(async move {
-            let output = OutputDir::from_existing(root);
-            let outcome = tokio::time::timeout(
-                item_timeout,
-                Systemd.collect(&output, &probe),
-            )
-            .await
-            .unwrap_or_else(|_| timed_out_outcome());
-            (
-                "RT-03".to_string(),
-                "systemd.json".to_string(),
-                outcome,
-            )
-        });
-    }
-    {
-        let root = manifest_dir.clone();
-        let probe = p4;
-        let item_timeout = std::time::Duration::from_secs(10);
-        set.spawn(async move {
-            let output = OutputDir::from_existing(root);
-            let outcome = tokio::time::timeout(item_timeout, Memory.collect(&output, &probe))
+            let outcome = tokio::time::timeout(timeout_secs, task.collect(&output, &probe))
                 .await
                 .unwrap_or_else(|_| timed_out_outcome());
-            (
-                "RT-06".to_string(),
-                "memory.json".to_string(),
-                outcome,
-            )
-        });
-    }
-    {
-        let root = manifest_dir.clone();
-        let probe = p3;
-        set.spawn(async move {
-            let output = OutputDir::from_existing(root);
-            let outcome = tokio::time::timeout(
-                std::time::Duration::from_secs(2),
-                Cpu.collect(&output, &probe),
-            )
-            .await
-            .unwrap_or_else(|_| timed_out_outcome());
-            ("RT-05".to_string(), "cpu.json".to_string(), outcome)
-        });
-    }
-    {
-        let root = manifest_dir.clone();
-        let probe = p2;
-        set.spawn(async move {
-            let output = OutputDir::from_existing(root);
-            let outcome = tokio::time::timeout(
-                std::time::Duration::from_secs(10),
-                Process.collect(&output, &probe),
-            )
-            .await
-            .unwrap_or_else(|_| timed_out_outcome());
-            (
-                "RT-04".to_string(),
-                "processes.jsonl".to_string(),
-                outcome,
-            )
+            (id, filename, outcome)
         });
     }
 
@@ -317,8 +261,8 @@ async fn main() {
     };
 
     let mut manifest_items: Vec<ManifestItem> = Vec::new();
-    for (id, filename, _) in &task_infos {
-        let result = results.iter().find(|(rid, _, _)| rid == *id);
+    for &(id, filename, _) in &task_infos {
+        let result = results.iter().find(|(rid, _, _)| rid == id);
         let item = match result {
             Some((_, _, outcome)) => ManifestItem {
                 id: id.to_string(),
@@ -389,6 +333,10 @@ async fn main() {
         tracing::error!("cannot write summary.json: {}", e);
     }
 
+    let systemd_probe = probe_map.get("RT-03").copied();
+    let netlink_probe = probe_map.get("RT-11").copied();
+    let conntrack_probe = probe_map.get("RT-13").copied();
+
     let manifest = Manifest {
         rebootsnap_version: VERSION.into(),
         collected_at: Local::now().to_rfc3339(),
@@ -399,13 +347,33 @@ async fn main() {
             uptime_seconds: uptime,
         },
         probe: ManifestProbe {
-            systemd: if p1_systemd_available {
-                "available".into()
-            } else {
-                p1_systemd_reason.unwrap_or_else(|| "unavailable".into())
-            },
-            netlink: "unavailable".into(),
-            conntrack: "unavailable".into(),
+            systemd: systemd_probe
+                .map(|p| {
+                    if p.available {
+                        "available".into()
+                    } else {
+                        p.reason.clone().unwrap_or_else(|| "unavailable".into())
+                    }
+                })
+                .unwrap_or_else(|| "unavailable".into()),
+            netlink: netlink_probe
+                .map(|p| {
+                    if p.available {
+                        "available".into()
+                    } else {
+                        p.reason.clone().unwrap_or_else(|| "unavailable".into())
+                    }
+                })
+                .unwrap_or_else(|| "unavailable".into()),
+            conntrack: conntrack_probe
+                .map(|p| {
+                    if p.available {
+                        "available".into()
+                    } else {
+                        p.reason.clone().unwrap_or_else(|| "unavailable".into())
+                    }
+                })
+                .unwrap_or_else(|| "unavailable".into()),
             hidepid: String::new(),
             capabilities: Vec::new(),
         },

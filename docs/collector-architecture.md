@@ -230,18 +230,18 @@ impl OutputDir {
 - 第一个依赖外部协议的大类。打通 `zbus` 后，全异步 D-Bus 链路验证完成。
 - systemd unit/job/inhibitor 状态对"服务为何挂了"、"谁在阻止重启"的解释价值无可替代。
 
-### 阶段 C：netlink 通路
+### 阶段 C：netlink 通路 ✅ 已完成
 
 **内容**：RT-11、RT-12、RT-13。
 
 **优先级理由**：
 
 - netlink 是三个外部协议路径中技术复杂度最高的。
-- RT-11（网口与路由）使用成熟的 `rtnetlink` crate，风险可控。
+- RT-11（网口与路由）实际实现回退至 sysfs `/sys/class/net/*` + procfs 路由/ARP 读取，因 rtnetlink 0.21 与 netlink-packet-route 0.30 API 版本变化较大。
 - RT-12（socket）走 procfs `/proc/net/*`，实际上是阶段 A 的延续。
-- RT-13 的 nftables 部分（`neli` 构建 netlink 消息）是本阶段唯一需要从底层构建协议消息的部分，也是整个项目中技术风险最高的单点。放在阶段 C 是为了给后续批量收尾留足时间。
+- RT-13（netfilter）走 procfs `/proc/net/nf_conntrack` 等文件读取，`neli` 路径暂缓。
 
-### 阶段 D：批量收尾
+### 阶段 D：批量收尾 ✅ 已完成
 
 **内容**：RT-02、RT-07、RT-08、RT-09、RT-10、RT-14、RT-15、RT-16、RT-17、RT-18、RT-19、RT-20、RT-21。
 
