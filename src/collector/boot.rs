@@ -73,39 +73,45 @@ impl Boot {
             hostname: hostname.clone(),
         };
 
-        let Ok(writer) = output.json_writer("boot.json") else {
-            return CollectionOutcome {
-                status: CollectionStatus::Failed {
-                    reason: "json writer creation failed".into(),
-                },
-                duration: start.elapsed(),
-                file_size: 0,
-                items_total: None,
-                items_collected: None,
-                mem_total_kb: None,
-                mem_available_kb: None,
-                hostname,
-                kernel_version,
-                boot_id,
-                uptime_seconds: uptime.map(|u| u as u64),
-            };
+        let writer = match output.json_writer("boot.json") {
+            Ok(w) => w,
+            Err(e) => {
+                return CollectionOutcome {
+                    status: CollectionStatus::Failed {
+                        reason: e.to_string(),
+                    },
+                    duration: start.elapsed(),
+                    file_size: 0,
+                    items_total: None,
+                    items_collected: None,
+                    mem_total_kb: None,
+                    mem_available_kb: None,
+                    hostname,
+                    kernel_version,
+                    boot_id,
+                    uptime_seconds: uptime.map(|u| u as u64),
+                };
+            }
         };
-        let Ok((size, _)) = writer.commit(&record).await else {
-            return CollectionOutcome {
-                status: CollectionStatus::Failed {
-                    reason: "json write failed".into(),
-                },
-                duration: start.elapsed(),
-                file_size: 0,
-                items_total: None,
-                items_collected: None,
-                mem_total_kb: None,
-                mem_available_kb: None,
-                hostname,
-                kernel_version,
-                boot_id,
-                uptime_seconds: uptime.map(|u| u as u64),
-            };
+        let (size, _) = match writer.commit(&record).await {
+            Ok(v) => v,
+            Err(e) => {
+                return CollectionOutcome {
+                    status: CollectionStatus::Failed {
+                        reason: e.to_string(),
+                    },
+                    duration: start.elapsed(),
+                    file_size: 0,
+                    items_total: None,
+                    items_collected: None,
+                    mem_total_kb: None,
+                    mem_available_kb: None,
+                    hostname,
+                    kernel_version,
+                    boot_id,
+                    uptime_seconds: uptime.map(|u| u as u64),
+                };
+            }
         };
 
         CollectionOutcome {

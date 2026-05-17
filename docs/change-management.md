@@ -30,7 +30,7 @@ type(scope): summary
 首行结构可按以下正则校验。`summary` 长度限制和禁用结尾句号仍按上方硬性规则执行：
 
 ```text
-^(docs|design|feat|fix|refactor|test|chore|build|ci|perf|style|revert)\([a-z0-9]([a-z0-9-]*[a-z0-9])?\): [A-Za-z0-9]([ -~]*[A-Za-z0-9)])?$
+^(docs|design|feat|fix|refactor|test|chore|build|ci|perf|style|revert)\([a-z0-9]([a-z0-9-]*[a-z0-9])?\): [A-Za-z0-9]([ -~]*[A-Za-z0-9])?$
 ```
 
 固定类型表：

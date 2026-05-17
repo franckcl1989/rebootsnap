@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 use std::time::Instant;
 
@@ -14,6 +14,7 @@ use collector::{
     boot::Boot, cpu::Cpu, memory::Memory, process::Process, CollectionOutcome, CollectionStatus,
     CollectionTask, ProbeOutcome,
 };
+use error::ArchiveError;
 use output::OutputDir;
 
 const GLOBAL_TIMEOUT_SECS: u64 = 300;
@@ -107,39 +108,45 @@ fn loadavg() -> (Option<f64>, Option<f64>, Option<f64>) {
     )
 }
 
+fn all_tasks() -> [CollectionTask; 4] {
+    [
+        CollectionTask::Boot(Boot),
+        CollectionTask::Process(Process),
+        CollectionTask::Cpu(Cpu),
+        CollectionTask::Memory(Memory),
+    ]
+}
+
 fn create_tar_gz(
-    src_dir: &std::path::Path,
+    src_dir: &Path,
     dir_name: &str,
-    dest_path: &std::path::Path,
-) -> Result<(), String> {
-    let gz_file = fs::File::create(dest_path)
-        .map_err(|e| format!("cannot create {}: {}", dest_path.display(), e))?;
+    dest_path: &Path,
+) -> Result<(), ArchiveError> {
+    let gz_file = fs::File::create(dest_path).map_err(ArchiveError::Io)?;
     let gz_encoder = flate2::write::GzEncoder::new(gz_file, flate2::Compression::default());
     let mut tar_builder = tar::Builder::new(gz_encoder);
 
-    for entry in
-        fs::read_dir(src_dir).map_err(|e| format!("cannot read dir {}: {}", src_dir.display(), e))?
-    {
-        let entry = entry.map_err(|e| format!("dir entry error: {}", e))?;
+    for entry in fs::read_dir(src_dir).map_err(ArchiveError::Io)? {
+        let entry = entry.map_err(ArchiveError::Io)?;
         let path = entry.path();
         if !path.is_file() {
             continue;
         }
         let file_name = path
             .file_name()
-            .ok_or_else(|| format!("no file name for {}", path.display()))?;
-        let tar_path = std::path::Path::new(dir_name).join(file_name);
+            .ok_or_else(|| ArchiveError::Tar(format!("no file name for {}", path.display())))?;
+        let tar_path = Path::new(dir_name).join(file_name);
         tar_builder
             .append_path_with_name(&path, &tar_path)
-            .map_err(|e| format!("tar append error for {}: {}", path.display(), e))?;
+            .map_err(|e| ArchiveError::Tar(format!("tar append error for {}: {}", path.display(), e)))?;
     }
 
     let gz_encoder = tar_builder
         .into_inner()
-        .map_err(|e| format!("tar finish error: {}", e))?;
+        .map_err(|e| ArchiveError::Tar(format!("tar finish error: {}", e)))?;
     gz_encoder
         .finish()
-        .map_err(|e| format!("gzip finish error: {}", e))?;
+        .map_err(|e| ArchiveError::Gzip(format!("gzip finish error: {}", e)))?;
 
     Ok(())
 }
@@ -147,7 +154,7 @@ fn create_tar_gz(
 fn timed_out_outcome() -> CollectionOutcome {
     CollectionOutcome {
         status: CollectionStatus::TimedOut,
-        duration: std::time::Duration::from_secs(0),
+        duration: std::time::Duration::ZERO,
         file_size: 0,
         items_total: None,
         items_collected: None,
@@ -180,35 +187,25 @@ async fn main() {
 
     let global_start = Instant::now();
 
-    let task_infos: Vec<(&str, &str, std::time::Duration)> = {
-        let t0 = CollectionTask::Boot(Boot);
-        let t1 = CollectionTask::Process(Process);
-        let t2 = CollectionTask::Cpu(Cpu);
-        let t3 = CollectionTask::Memory(Memory);
-        vec![
-            (t0.id(), t0.filename(), t0.item_timeout()),
-            (t1.id(), t1.filename(), t1.item_timeout()),
-            (t2.id(), t2.filename(), t2.item_timeout()),
-            (t3.id(), t3.filename(), t3.item_timeout()),
-        ]
-    };
+    let tasks = all_tasks();
 
-    let mut probes: Vec<ProbeOutcome> = Vec::with_capacity(4);
-    {
-        let t0 = CollectionTask::Boot(Boot);
-        let t1 = CollectionTask::Process(Process);
-        let t2 = CollectionTask::Cpu(Cpu);
-        let t3 = CollectionTask::Memory(Memory);
-        probes.push(t0.probe().await);
-        probes.push(t1.probe().await);
-        probes.push(t2.probe().await);
-        probes.push(t3.probe().await);
+    let task_infos: Vec<(&str, &str, std::time::Duration)> = tasks
+        .iter()
+        .map(|t| (t.id(), t.filename(), t.item_timeout()))
+        .collect();
+
+    let mut probes = Vec::with_capacity(tasks.len());
+    for task in &tasks {
+        probes.push(task.probe().await);
     }
 
-    let p0 = probes.remove(0);
-    let p1 = probes.remove(0);
-    let p2 = probes.remove(0);
-    let p3 = probes.remove(0);
+    let [p0, p1, p2, p3] = match <[ProbeOutcome; 4]>::try_from(probes) {
+        Ok(a) => a,
+        Err(_) => {
+            tracing::error!("probe count changed unexpectedly");
+            process::exit(1);
+        }
+    };
 
     let mut set = tokio::task::JoinSet::new();
 
@@ -216,7 +213,7 @@ async fn main() {
         let root = manifest_dir.clone();
         let probe = p0;
         set.spawn(async move {
-            let output = OutputDir { root };
+            let output = OutputDir::from_existing(root);
             let outcome = tokio::time::timeout(
                 std::time::Duration::from_secs(2),
                 Boot.collect(&output, &probe),
@@ -231,7 +228,7 @@ async fn main() {
         let probe = p3;
         let item_timeout = std::time::Duration::from_secs(10);
         set.spawn(async move {
-            let output = OutputDir { root };
+            let output = OutputDir::from_existing(root);
             let outcome = tokio::time::timeout(item_timeout, Memory.collect(&output, &probe))
                 .await
                 .unwrap_or_else(|_| timed_out_outcome());
@@ -246,7 +243,7 @@ async fn main() {
         let root = manifest_dir.clone();
         let probe = p2;
         set.spawn(async move {
-            let output = OutputDir { root };
+            let output = OutputDir::from_existing(root);
             let outcome = tokio::time::timeout(
                 std::time::Duration::from_secs(2),
                 Cpu.collect(&output, &probe),
@@ -260,7 +257,7 @@ async fn main() {
         let root = manifest_dir.clone();
         let probe = p1;
         set.spawn(async move {
-            let output = OutputDir { root };
+            let output = OutputDir::from_existing(root);
             let outcome = tokio::time::timeout(
                 std::time::Duration::from_secs(10),
                 Process.collect(&output, &probe),

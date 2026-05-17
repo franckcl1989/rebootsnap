@@ -6,7 +6,6 @@ pub mod memory;
 pub mod process;
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub struct ProbeOutcome {
     pub available: bool,
     pub degraded: Vec<String>,
@@ -58,7 +57,6 @@ pub struct CollectionOutcome {
 }
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub enum CollectionStatus {
     Ok,
     Truncated { reason: String },
@@ -96,6 +94,7 @@ impl CollectionTask {
     pub fn item_timeout(&self) -> Duration {
         match self {
             CollectionTask::Process(_) => Duration::from_secs(10),
+            CollectionTask::Memory(_) => Duration::from_secs(10),
             _ => Duration::from_secs(2),
         }
     }

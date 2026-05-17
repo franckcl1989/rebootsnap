@@ -4,6 +4,40 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-17 - 审核修复：接入 error type、补齐校验覆盖、消除主循环重复
+
+- **类型**：修复 / 重构
+- **范围**：`src/error.rs`、`src/output.rs`、`src/main.rs`、全部 `src/collector/*.rs`、`src/collector/mod.rs`、`Cargo.lock`、`docs/decisions/0003-implementation-tech-stack.md`、`docs/collector-architecture.md`、`docs/change-management.md`、`scripts/verify.sh`、`scripts/validate-change-management.sh`、`README.md`、`CHANGELOG.md`
+- **提交信息**：`fix(governance): wire error types, DRY main, fix verify coverage`
+
+### 变更内容
+
+- 移除 `OutputError` 和 `ArchiveError` 的 `#[allow(dead_code)]`，接入 `output.rs`（全部 `Result<T, String>` → `Result<T, OutputError>`）和 `main.rs` 的 `create_tar_gz`（→ `Result<(), ArchiveError>`）。
+- 四个 collector 的 `collect()` 中捕获实际 error（`e.to_string()`）替代硬编码失败原因。
+- 新增 `OutputDir::from_existing()` 工厂方法，`main.rs` 中 4 处 `OutputDir { root }` 直接构造替换为 `from_existing()`。
+- `main.rs` 提取 `all_tasks()` 函数统一注册 4 个 `CollectionTask`，消除 task_infos 与 probe 循环之间的手动重复声明。
+- 移除 `ProbeOutcome`、`CollectionStatus` 上多余的 `#[allow(dead_code)]`（已被 4 个 collector 和 `main.rs` 使用）。
+- `output::SIZE_LIMIT` 改为 `pub`，`process.rs` 截断原因判断从魔术数字 `64*1024*1024` 改为引用该常量。
+- 重建 `Cargo.lock`，消除已移除 `async-trait` 的直接依赖残留。
+- ADR 0003 crate 表格补齐 `tokio` 行。
+- `docs/collector-architecture.md`：修正 `create()` 参数名 `root`→`base_dir` 和返回值类型 `Result<Self, OutputError>`；补充 `from_existing()` 文档。
+- `memory.rs` 硬编码文件路径改为引用 `FILES` 数组索引，与 `boot.rs`/`cpu.rs` 模式一致。
+- `main.rs` 中 `try_into().unwrap()` 改为 `match` 显式处理 probe 数量变化。
+- `output.rs` 中 `expect()` 改为 `match` 返回 `OutputError`，消除 panic 路径。
+- `docs/change-management.md` 和 `scripts/validate-change-management.sh` 中提交信息 regex 修正：字符类 `[A-Za-z0-9)]` 中误入的 `)` 移除。
+
+### 设计影响
+
+- 不改变现有设计约束。`OutputError`/`ArchiveError` 接入是对 Phase A 审核中 `thiserror` 落地路径的补全，不引入新的 API、配置项或外部依赖。
+- `OutputDir::from_existing()` 是语义澄清而非行为变更：调用者必须已通过 `create()` 确保目录存在。
+- `all_tasks()` 函数使新增 collector 时只需修改一处数组。
+
+### 验证
+
+- `cargo build` 编译通过（零 warning）。
+- `cargo run --release -- /tmp` 运行成功，tar.gz 归档正确。
+- `scripts/verify.sh` exit 0。
+
 ## 2026-05-17 - 审核修复：probe 结果落地、文档漂移消除
 
 - **类型**：修复
@@ -130,35 +164,6 @@
 - 人工审核三篇新文档与 ADR 0001、ADR 0002、采集安全治理和测试治理无矛盾。
 - 人工确认全部选定 crate 均为纯 Rust 且活跃维护，唯一例外是 nftables 需用 `neli` 构建 netlink 消息（因 `netlink-packet-netfilter` 已废弃约 3 年）。
 - 人工审核输出格式满足人类（grep 直接看）、工具（按索引遍历）和 AI（manifest → summary → 定向钻入）三种消费路径。
-
-## 2026-05-15 - 建立 collector 安全与测试治理基线
-
-- **类型**：设计 / 文档
-- **范围**：`docs/collector-security-governance.md`、`docs/collector-testing-governance.md`、`docs/index.md`、`docs/project-map.yml`、`docs/glossary.md`、`scripts/verify.sh`、`README.md`、`CHANGELOG.md`
-- **提交信息**：`design(collector): establish security and testing governance baseline`
-
-### 变更内容
-
-- 新增 `docs/collector-security-governance.md`，固定只读采集原则、敏感信息禁止清单、原始值记录策略、权限模型、有界执行约束和安全威胁模型。
-- 新增 `docs/collector-testing-governance.md`，固定发行版兼容范围（首轮 Rocky Linux 8.x / systemd / 内核 4.18.x / x86_64）、能力探测策略、可复现 mock 测试样本规范和最小测试覆盖要求。
-- 更新 `docs/glossary.md`，新增有界执行、降级、能力探测和脱敏四个稳定术语。
-- 更新 `scripts/verify.sh`，将两篇治理文档纳入必需文件校验和项目地图一致性校验。
-- 更新 `docs/index.md`、`docs/project-map.yml` 和 `README.md`，将两篇治理文档接入稳定入口。
-
-### 设计影响
-
-- collector 实现前必须逐条通过安全治理约束（只读、禁止采集项、有界执行、权限降级、威胁模型）。
-- collector 实现前必须建立 mock fixture 测试体系，覆盖正常系统、资源紧张、部分接口缺失、权限不足和异常数据五个场景。
-- 数据记录策略固定为原始值记录，不在 collector 侧做脱敏；脱敏留给报告层或独立后处理工具。
-- 发行版兼容范围固定为首轮 Rocky Linux 8.x；扩大范围前必须先更新 `docs/collector-testing-governance.md` 并补充对应测试样本。
-- ADR 0002 的安全与测试治理门槛以此两篇文档为落地依据；不再以 ADR 0002 中简短一句话作为唯一约束。
-
-### 验证
-
-- 运行 `scripts/verify.sh` 校验治理入口、文档导航、项目地图、Markdown 链接、变更记录结构和 whitespace，确认所有必需文件存在且导航一致。
-- 人工审核两篇治理文档覆盖了 ADR 0002 要求的全部治理领域（只读采集原则、敏感信息边界、脱敏策略、发行版兼容范围、可复现测试样本）。
-- 人工审核安全与测试治理文档互不冲突，且与 `docs/linux-runtime-info-collection-decision.md` 的决策边界一致。
-- 人工核对新增术语定义与跨文档用法一致，无歧义或冲突。
 
 ## 2026-05-15 - 固定默认采集策略
 

@@ -156,7 +156,10 @@ pub struct OutputDir {
 
 impl OutputDir {
     /// 创建输出根目录（如 rebootsnap-20260515-143000/）。
-    pub async fn create(root: &Path) -> Result<Self>;
+    pub async fn create(base_dir: &Path) -> Result<Self, OutputError>;
+
+    /// 基于已存在的目录构造 OutputDir（需先通过 create() 创建）。
+    pub fn from_existing(root: PathBuf) -> Self;
 
     /// 打开一个 JSON 文件写入器。collector 先序列化到内存 buffer；
     /// 若 buffer 未超 64 MiB，写入 tempfile 并 persist 为最终文件名；
@@ -185,7 +188,7 @@ impl OutputDir {
 | RT-03 | 初始化系统 | org.freedesktop.systemd1 D-Bus | `zbus` | JSON |
 | RT-04 | 进程与线程 | `/proc/[pid]/*` | `procfs` | JSONL |
 | RT-05 | CPU 与调度 | `/proc/stat`, `/proc/loadavg`, `/proc/pressure/cpu`, `/proc/interrupts`, `/proc/softirqs` | std::fs | JSON |
-| RT-06 | 内存 | `/proc/meminfo`, `/proc/pressure/memory`, `/proc/vmstat`, `/proc/zoneinfo` | `procfs` | JSON |
+| RT-06 | 内存 | `/proc/meminfo`, `/proc/pressure/memory`, `/proc/vmstat`, `/proc/zoneinfo` | `std::fs` | JSON |
 | RT-07 | 打开句柄 | `/proc/[pid]/fd/`, `/proc/[pid]/fdinfo/`, `/proc/locks` | `procfs` | JSONL |
 | RT-08 | 临时文件系统 | `/run`, `/dev/shm`, `/tmp` 的 stat 信息 | std::fs | JSON |
 | RT-09 | VFS 与挂载 | `/proc/[pid]/mountinfo` | `procfs` | JSONL |

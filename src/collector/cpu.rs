@@ -66,39 +66,45 @@ impl Cpu {
             softirqs: read_raw(FILES[4]),
         };
 
-        let Ok(writer) = output.json_writer("cpu.json") else {
-            return CollectionOutcome {
-                status: CollectionStatus::Failed {
-                    reason: "json writer creation failed".into(),
-                },
-                duration: start.elapsed(),
-                file_size: 0,
-                items_total: None,
-                items_collected: None,
-                mem_total_kb: None,
-                mem_available_kb: None,
-                hostname: None,
-                kernel_version: None,
-                boot_id: None,
-                uptime_seconds: None,
-            };
+        let writer = match output.json_writer("cpu.json") {
+            Ok(w) => w,
+            Err(e) => {
+                return CollectionOutcome {
+                    status: CollectionStatus::Failed {
+                        reason: e.to_string(),
+                    },
+                    duration: start.elapsed(),
+                    file_size: 0,
+                    items_total: None,
+                    items_collected: None,
+                    mem_total_kb: None,
+                    mem_available_kb: None,
+                    hostname: None,
+                    kernel_version: None,
+                    boot_id: None,
+                    uptime_seconds: None,
+                };
+            }
         };
-        let Ok((size, _)) = writer.commit(&record).await else {
-            return CollectionOutcome {
-                status: CollectionStatus::Failed {
-                    reason: "json write failed".into(),
-                },
-                duration: start.elapsed(),
-                file_size: 0,
-                items_total: None,
-                items_collected: None,
-                mem_total_kb: None,
-                mem_available_kb: None,
-                hostname: None,
-                kernel_version: None,
-                boot_id: None,
-                uptime_seconds: None,
-            };
+        let (size, _) = match writer.commit(&record).await {
+            Ok(v) => v,
+            Err(e) => {
+                return CollectionOutcome {
+                    status: CollectionStatus::Failed {
+                        reason: e.to_string(),
+                    },
+                    duration: start.elapsed(),
+                    file_size: 0,
+                    items_total: None,
+                    items_collected: None,
+                    mem_total_kb: None,
+                    mem_available_kb: None,
+                    hostname: None,
+                    kernel_version: None,
+                    boot_id: None,
+                    uptime_seconds: None,
+                };
+            }
         };
 
         CollectionOutcome {

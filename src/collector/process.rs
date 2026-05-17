@@ -2,7 +2,7 @@ use serde::Serialize;
 use std::time::Instant;
 
 use crate::collector::{CollectionOutcome, CollectionStatus, ProbeOutcome};
-use crate::output::OutputDir;
+use crate::output::{OutputDir, SIZE_LIMIT};
 
 pub struct Process;
 
@@ -64,22 +64,25 @@ impl Process {
             .unwrap_or_default();
         let total: u64 = entries.len() as u64;
 
-        let Ok(mut writer) = output.jsonl_writer("processes.jsonl") else {
-            return CollectionOutcome {
-                status: CollectionStatus::Failed {
-                    reason: "jsonl writer creation failed".into(),
-                },
-                duration: start.elapsed(),
-                file_size: 0,
-                items_total: None,
-                items_collected: None,
-                mem_total_kb: None,
-                mem_available_kb: None,
-                hostname: None,
-                kernel_version: None,
-                boot_id: None,
-                uptime_seconds: None,
-            };
+        let mut writer = match output.jsonl_writer("processes.jsonl") {
+            Ok(w) => w,
+            Err(e) => {
+                return CollectionOutcome {
+                    status: CollectionStatus::Failed {
+                        reason: e.to_string(),
+                    },
+                    duration: start.elapsed(),
+                    file_size: 0,
+                    items_total: None,
+                    items_collected: None,
+                    mem_total_kb: None,
+                    mem_available_kb: None,
+                    hostname: None,
+                    kernel_version: None,
+                    boot_id: None,
+                    uptime_seconds: None,
+                };
+            }
         };
 
         let mut write_error: Option<String> = None;
@@ -110,7 +113,7 @@ impl Process {
             };
 
             if let Err(e) = writer.write_line(&record).await {
-                write_error = Some(e);
+                write_error = Some(e.to_string());
                 break;
             }
         }
@@ -123,7 +126,7 @@ impl Process {
         let status = if let Some(e) = write_error {
             CollectionStatus::Failed { reason: e }
         } else if is_truncated {
-            let reason = if size >= 64 * 1024 * 1024 {
+            let reason = if size >= SIZE_LIMIT {
                 "size_limit"
             } else {
                 "item_count_limit"

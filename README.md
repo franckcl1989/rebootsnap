@@ -14,6 +14,7 @@ RebootSnap captures a pre-reboot snapshot of Linux runtime state, preserving key
 - [Collector 安全治理](docs/collector-security-governance.md)
 - [Collector 测试治理](docs/collector-testing-governance.md)
 - [Collector 架构](docs/collector-architecture.md)
+- [Phase A 实现审核报告](docs/phase-a-review.md)
 - [设计决策记录](docs/decisions/README.md)
 - [ADR 0001：Linux OS 运行时信息边界](docs/decisions/0001-runtime-info-boundary.md)
 - [ADR 0002：人与 AI 共治执行模型](docs/decisions/0002-human-ai-governance.md)

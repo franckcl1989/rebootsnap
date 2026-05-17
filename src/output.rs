@@ -1,4 +1,3 @@
-use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -6,7 +5,9 @@ use chrono::Local;
 use serde::Serialize;
 use tempfile::NamedTempFile;
 
-const SIZE_LIMIT: u64 = 64 * 1024 * 1024;
+use crate::error::OutputError;
+
+pub const SIZE_LIMIT: u64 = 64 * 1024 * 1024;
 const ITEM_COUNT_LIMIT: u64 = 50_000;
 
 pub struct OutputDir {
@@ -14,14 +15,17 @@ pub struct OutputDir {
 }
 
 impl OutputDir {
-    pub async fn create(base_dir: &Path) -> Result<Self, String> {
+    pub async fn create(base_dir: &Path) -> Result<Self, OutputError> {
         let ts = Local::now().format("%Y%m%d-%H%M%S");
         let dirname = format!("rebootsnap-{}", ts);
         let root = base_dir.join(&dirname);
-        fs::create_dir_all(&root)
-            .map_err(|e| format!("cannot create output directory {}: {}", root.display(), e))?;
+        std::fs::create_dir_all(&root).map_err(OutputError::Io)?;
         tracing::info!("output directory: {}", root.display());
         Ok(OutputDir { root })
+    }
+
+    pub fn from_existing(root: PathBuf) -> Self {
+        OutputDir { root }
     }
 
     pub fn root(&self) -> &Path {
@@ -32,18 +36,16 @@ impl OutputDir {
         self.root.file_name()?.to_str()
     }
 
-    pub fn json_writer(&self, filename: &str) -> Result<JsonWriter, String> {
-        let tf = NamedTempFile::new_in(&self.root)
-            .map_err(|e| format!("cannot create temp file: {}", e))?;
+    pub fn json_writer(&self, filename: &str) -> Result<JsonWriter, OutputError> {
+        let tf = NamedTempFile::new_in(&self.root).map_err(OutputError::Io)?;
         Ok(JsonWriter {
             tf,
             final_path: self.root.join(filename),
         })
     }
 
-    pub fn jsonl_writer(&self, filename: &str) -> Result<JsonlWriter, String> {
-        let tf = NamedTempFile::new_in(&self.root)
-            .map_err(|e| format!("cannot create temp file: {}", e))?;
+    pub fn jsonl_writer(&self, filename: &str) -> Result<JsonlWriter, OutputError> {
+        let tf = NamedTempFile::new_in(&self.root).map_err(OutputError::Io)?;
         Ok(JsonlWriter {
             tf: Some(tf),
             byte_count: 0,
@@ -54,9 +56,8 @@ impl OutputDir {
     }
 
     #[allow(dead_code)]
-    pub fn text_writer(&self, filename: &str) -> Result<TextWriter, String> {
-        let tf = NamedTempFile::new_in(&self.root)
-            .map_err(|e| format!("cannot create temp file: {}", e))?;
+    pub fn text_writer(&self, filename: &str) -> Result<TextWriter, OutputError> {
+        let tf = NamedTempFile::new_in(&self.root).map_err(OutputError::Io)?;
         Ok(TextWriter {
             tf,
             byte_count: 0,
@@ -66,12 +67,12 @@ impl OutputDir {
     }
 
     pub fn cleanup_tmp(&self) {
-        match fs::read_dir(&self.root) {
+        match std::fs::read_dir(&self.root) {
             Ok(entries) => {
                 for entry in entries.flatten() {
                     let path = entry.path();
                     if path.extension().map_or(false, |e| e == "tmp") {
-                        if let Err(e) = fs::remove_file(&path) {
+                        if let Err(e) = std::fs::remove_file(&path) {
                             tracing::warn!("cannot remove temp file {}: {}", path.display(), e);
                         }
                     }
@@ -90,22 +91,19 @@ pub struct JsonWriter {
 }
 
 impl JsonWriter {
-    pub async fn commit<T: Serialize>(mut self, value: &T) -> Result<(u64, Option<u64>), String> {
-        let json_bytes =
-            serde_json::to_vec(value).map_err(|e| format!("json serialization failed: {}", e))?;
+    pub async fn commit<T: Serialize>(mut self, value: &T) -> Result<(u64, Option<u64>), OutputError> {
+        let json_bytes = serde_json::to_vec(value).map_err(OutputError::Serialize)?;
 
         if json_bytes.len() as u64 > SIZE_LIMIT {
-            return Err("json output exceeds 64 MiB limit".to_string());
+            return Err(OutputError::SizeLimit);
         }
 
-        self.tf
-            .write_all(&json_bytes)
-            .map_err(|e| format!("cannot write temp file: {}", e))?;
+        self.tf.write_all(&json_bytes).map_err(OutputError::Io)?;
 
         let size = json_bytes.len() as u64;
         self.tf
             .persist(&self.final_path)
-            .map_err(|e| format!("cannot persist {}: {}", self.final_path.display(), e))?;
+            .map_err(|e| OutputError::Io(e.error))?;
 
         Ok((size, None))
     }
@@ -120,26 +118,33 @@ pub struct JsonlWriter {
 }
 
 impl JsonlWriter {
-    pub async fn write_line<T: Serialize>(&mut self, value: &T) -> Result<(), String> {
+    pub async fn write_line<T: Serialize>(&mut self, value: &T) -> Result<(), OutputError> {
         if self.truncated {
             return Ok(());
         }
 
-        let mut line_bytes =
-            serde_json::to_vec(value).map_err(|e| format!("jsonl serialization failed: {}", e))?;
+        let mut line_bytes = serde_json::to_vec(value).map_err(OutputError::Serialize)?;
         line_bytes.push(b'\n');
         let line_len = line_bytes.len() as u64;
 
-        let tf = self.tf.as_mut().expect("JsonlWriter already finished");
+        let tf = match self.tf.as_mut() {
+            Some(t) => t,
+            None => {
+                return Err(OutputError::Io(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "JsonlWriter already finished",
+                )));
+            }
+        };
 
         if self.byte_count + line_len > SIZE_LIMIT {
             if self.byte_count < SIZE_LIMIT {
                 let marker = serde_json::json!({"truncated": true, "reason": "size_limit"});
                 let mut marker_bytes = serde_json::to_vec(&marker)
-                    .map_err(|e| format!("truncation marker failed: {}", e))?;
+                    .map_err(OutputError::Serialize)?;
                 marker_bytes.push(b'\n');
                 if self.byte_count + marker_bytes.len() as u64 <= SIZE_LIMIT {
-                    tf.write_all(&marker_bytes).map_err(|e| format!("write error: {}", e))?;
+                    tf.write_all(&marker_bytes).map_err(OutputError::Io)?;
                 }
             }
             self.truncated = true;
@@ -150,18 +155,17 @@ impl JsonlWriter {
             if self.byte_count < SIZE_LIMIT {
                 let marker = serde_json::json!({"truncated": true, "reason": "item_count_limit"});
                 let mut marker_bytes = serde_json::to_vec(&marker)
-                    .map_err(|e| format!("truncation marker failed: {}", e))?;
+                    .map_err(OutputError::Serialize)?;
                 marker_bytes.push(b'\n');
                 if self.byte_count + marker_bytes.len() as u64 <= SIZE_LIMIT {
-                    tf.write_all(&marker_bytes).map_err(|e| format!("write error: {}", e))?;
+                    tf.write_all(&marker_bytes).map_err(OutputError::Io)?;
                 }
             }
             self.truncated = true;
             return Ok(());
         }
 
-        tf.write_all(&line_bytes)
-            .map_err(|e| format!("write error: {}", e))?;
+        tf.write_all(&line_bytes).map_err(OutputError::Io)?;
 
         self.byte_count += line_len;
         self.item_count += 1;
@@ -172,6 +176,7 @@ impl JsonlWriter {
         self.truncated
     }
 
+    #[allow(dead_code)]
     pub fn byte_count(&self) -> u64 {
         self.byte_count
     }
@@ -202,7 +207,7 @@ pub struct TextWriter {
 
 #[allow(dead_code)]
 impl TextWriter {
-    pub async fn write(&mut self, data: &[u8]) -> Result<(), String> {
+    pub async fn write(&mut self, data: &[u8]) -> Result<(), OutputError> {
         if self.truncated {
             return Ok(());
         }
@@ -213,16 +218,14 @@ impl TextWriter {
             if remaining > 0 {
                 self.tf
                     .write_all(&data[..remaining.min(data.len())])
-                    .map_err(|e| format!("write error: {}", e))?;
+                    .map_err(OutputError::Io)?;
                 self.byte_count = SIZE_LIMIT;
             }
             self.truncated = true;
             return Ok(());
         }
 
-        self.tf
-            .write_all(data)
-            .map_err(|e| format!("write error: {}", e))?;
+        self.tf.write_all(data).map_err(OutputError::Io)?;
         self.byte_count += data_len;
         Ok(())
     }
@@ -235,11 +238,11 @@ impl TextWriter {
         self.byte_count
     }
 
-    pub async fn finish(self) -> Result<u64, String> {
+    pub async fn finish(self) -> Result<u64, OutputError> {
         if self.byte_count > 0 {
             self.tf
                 .persist(&self.final_path)
-                .map_err(|e| format!("cannot persist {}: {}", self.final_path.display(), e))?;
+                .map_err(|e| OutputError::Io(e.error))?;
         }
         Ok(self.byte_count)
     }

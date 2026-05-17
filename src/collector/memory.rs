@@ -65,7 +65,7 @@ impl Memory {
         let mut mem_total_kb: Option<i64> = None;
         let mut mem_available_kb: Option<i64> = None;
 
-        if let Some(raw) = read_raw("/proc/meminfo") {
+        if let Some(raw) = read_raw(FILES[0]) {
             for line in raw.lines() {
                 let Some((key, val)) = line.split_once(':') else {
                     continue;
@@ -91,44 +91,50 @@ impl Memory {
         let record = MemoryRecord {
             collection: "RT-06",
             meminfo: entries,
-            pressure_memory: read_raw("/proc/pressure/memory"),
-            vmstat: read_raw("/proc/vmstat"),
-            zoneinfo: read_raw("/proc/zoneinfo"),
+            pressure_memory: read_raw(FILES[1]),
+            vmstat: read_raw(FILES[2]),
+            zoneinfo: read_raw(FILES[3]),
         };
 
-        let Ok(writer) = output.json_writer("memory.json") else {
-            return CollectionOutcome {
-                status: CollectionStatus::Failed {
-                    reason: "json writer creation failed".into(),
-                },
-                duration: start.elapsed(),
-                file_size: 0,
-                items_total: None,
-                items_collected: None,
-                mem_total_kb,
-                mem_available_kb,
-                hostname: None,
-                kernel_version: None,
-                boot_id: None,
-                uptime_seconds: None,
-            };
+        let writer = match output.json_writer("memory.json") {
+            Ok(w) => w,
+            Err(e) => {
+                return CollectionOutcome {
+                    status: CollectionStatus::Failed {
+                        reason: e.to_string(),
+                    },
+                    duration: start.elapsed(),
+                    file_size: 0,
+                    items_total: None,
+                    items_collected: None,
+                    mem_total_kb,
+                    mem_available_kb,
+                    hostname: None,
+                    kernel_version: None,
+                    boot_id: None,
+                    uptime_seconds: None,
+                };
+            }
         };
-        let Ok((size, _)) = writer.commit(&record).await else {
-            return CollectionOutcome {
-                status: CollectionStatus::Failed {
-                    reason: "json write failed".into(),
-                },
-                duration: start.elapsed(),
-                file_size: 0,
-                items_total: None,
-                items_collected: None,
-                mem_total_kb,
-                mem_available_kb,
-                hostname: None,
-                kernel_version: None,
-                boot_id: None,
-                uptime_seconds: None,
-            };
+        let (size, _) = match writer.commit(&record).await {
+            Ok(v) => v,
+            Err(e) => {
+                return CollectionOutcome {
+                    status: CollectionStatus::Failed {
+                        reason: e.to_string(),
+                    },
+                    duration: start.elapsed(),
+                    file_size: 0,
+                    items_total: None,
+                    items_collected: None,
+                    mem_total_kb,
+                    mem_available_kb,
+                    hostname: None,
+                    kernel_version: None,
+                    boot_id: None,
+                    uptime_seconds: None,
+                };
+            }
         };
 
         CollectionOutcome {

@@ -58,6 +58,7 @@
 
 | 用途 | Crate | 选型理由 |
 | --- | --- | --- |
+| 异步运行时 | `tokio` 1.x (features: rt-multi-thread, fs, time, macros) | 多线程异步 runtime，所有异步采集、超时控制和并发调度。 |
 | /proc 解析（进程、meminfo、/proc/net/* 等） | `procfs` 0.18 | 纯 Rust，活跃维护，覆盖全部 /proc 文件语法解析。 |
 | systemd D-Bus 查询 | `zbus` 5.x | 纯 Rust，异步原生，零 C 依赖。 |
 | 网口、地址、路由、邻居查询 | `rtnetlink` 0.21 + `netlink-packet-route` | 纯 Rust netlink 协议栈，原生 tokio 后端。 |

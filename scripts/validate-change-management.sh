@@ -5,7 +5,7 @@ export LC_ALL=C
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 CHANGELOG="$ROOT/CHANGELOG.md"
 CHANGELOG_SOURCE="${CHANGELOG_SOURCE:-worktree}"
-SUBJECT_RE='^(docs|design|feat|fix|refactor|test|chore|build|ci|perf|style|revert)\([a-z0-9]([a-z0-9-]*[a-z0-9])?\): [A-Za-z0-9]([ -~]*[A-Za-z0-9)])?$'
+SUBJECT_RE='^(docs|design|feat|fix|refactor|test|chore|build|ci|perf|style|revert)\([a-z0-9]([a-z0-9-]*[a-z0-9])?\): [A-Za-z0-9]([ -~]*[A-Za-z0-9])?$'
 
 fail() {
   printf 'change-management: %s\n' "$*" >&2

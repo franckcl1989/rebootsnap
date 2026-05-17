@@ -23,7 +23,6 @@ pub enum CollectError {
 }
 
 #[derive(Error, Debug)]
-#[allow(dead_code)]
 pub enum OutputError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
@@ -35,11 +34,11 @@ pub enum OutputError {
     SizeLimit,
 
     #[error("item count exceeds 50000 limit")]
+    #[allow(dead_code)]
     ItemCountLimit,
 }
 
 #[derive(Error, Debug)]
-#[allow(dead_code)]
 pub enum ArchiveError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),

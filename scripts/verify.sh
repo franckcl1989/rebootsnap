@@ -38,6 +38,7 @@ check_required_files() {
     docs/collector-security-governance.md
     docs/collector-testing-governance.md
     docs/collector-architecture.md
+    docs/phase-a-review.md
     docs/decisions/README.md
     docs/decisions/0001-runtime-info-boundary.md
     docs/decisions/0002-human-ai-governance.md
@@ -96,6 +97,7 @@ check_project_map() {
     docs/collector-security-governance.md
     docs/collector-testing-governance.md
     docs/collector-architecture.md
+    docs/phase-a-review.md
     docs/decisions/README.md
     docs/decisions/0001-runtime-info-boundary.md
     docs/decisions/0002-human-ai-governance.md
