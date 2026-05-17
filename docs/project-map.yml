@@ -21,6 +21,7 @@ canonical_docs:
   collector_security: docs/collector-security-governance.md
   collector_testing: docs/collector-testing-governance.md
   collector_architecture: docs/collector-architecture.md
+  phase_a_review: docs/phase-a-review.md
   decisions_index: docs/decisions/README.md
 
 decisions:

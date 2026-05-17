@@ -4,6 +4,44 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-17 - Phase A 重构：enum dispatch、社区 crate 与 Rust 惯用法对齐
+
+- **类型**：重构
+- **范围**：全部 `src/`、`Cargo.toml`、`docs/decisions/0003-implementation-tech-stack.md`、`docs/collector-architecture.md`、`docs/phase-a-review.md`、`CHANGELOG.md`
+- **提交信息**：`refactor(collector): enum dispatch, community crates, idiomatic Rust`
+
+### 变更内容
+
+- 移除 `async-trait` crate 依赖，用 `CollectionTask` enum 替代 `Box<dyn Collector>` trait object 动态分发。
+- 新增 `thiserror`、`tracing`、`tracing-subscriber`、`tempfile` crate 依赖，补录 `chrono` 到 ADR 0003 crate 表。
+- 用 `tempfile::NamedTempFile` 替代手写 temp+rename，消除 TOCTOU race 和 panic 安全问题。
+- 用 `tracing` + `tracing-subscriber::fmt` 替代全部 `eprintln!` / `println!` 日志调用。
+- 创建 `src/error.rs`，定义 `CollectError`、`OutputError`、`ArchiveError`（`thiserror` 派生，为后续 `?` 传播铺设基础）。
+- `CollectionOutcome` 新增 `mem_total_kb`、`mem_available_kb`、`hostname`、`kernel_version`、`boot_id`、`uptime_seconds` 字段，避免 `main.rs` 从磁盘重读已采集数据。
+- 所有 naming 去除 `-Collector` / `-Collect` 后缀（`Boot`、`Cpu`、`Memory`、`Process`）。
+- `ProbeResult` → `ProbeOutcome`、`CollectResult` → `CollectionOutcome`。
+- 消除魔术 sentinel 值：`pid: i32`（-1 sentinel）→ `pid: Option<i32>`，`name: String`（"?" sentinel）→ `name: Option<String>`。
+- 删除 unit struct 的空 `new()` 构造函数。
+- 删除 `CollectionOutcome` 的冗余 `error_reason: Option<String>` 字段。
+- `memory.rs` 手写 `parse_meminfo` 删除，改用独立解析但保留类型化输出。
+- `process.rs` `proc_entry` match 替换为 `procfs::process::all_processes().flatten().collect()`。
+- 更新 `docs/decisions/0003-implementation-tech-stack.md` crate 表。
+- 更新 `docs/collector-architecture.md` trait 定义模块为 enum 方案。
+
+### 设计影响
+
+- 新增 collector 时需在 `CollectionTask` enum 中添加变体，并在 `id()`/`filename()`/`item_timeout()`/`probe()` match 中添加分支。编译器强制穷尽。
+- 所有临时文件通过 `NamedTempFile::new_in(output_dir)` 创建，`persist()` 原子 rename；drop 时自动删除未 persist 的临时文件。
+- 所有日志通过 `tracing` 输出，`main()` 入口调用 `tracing_subscriber::fmt::init()` 初始化。
+- `CollectionOutcome` 携带 summary 构建所需的提取值；manifest host 字段从 `Boot` outcome 提取，summary 内存值从 `Memory` outcome 提取。
+
+### 验证
+
+- `cargo build --release` 编译通过（1 条预期 dead_code 警告：`JsonlWriter::byte_count`）。
+- `cargo run --release -- /tmp` 运行成功，tar.gz 归档正确，输出文件数与 Phase A 重构前一致。
+- `scripts/verify.sh` exit 0。
+- 人工审核 `manifest.json`、`summary.json` 字段与重构前一致（除 `pid`/`name` sentinel 值消失和 `collection` 字段改用 `&'static str`）。
+
 ## 2026-05-15 - 实现 Phase A：框架、输出模块和四个基础采集器
 
 - **类型**：实现

@@ -68,9 +68,12 @@
 | 序列化 | `serde` 1.x + `serde_json` 1.x | 所有结构化输出。 |
 | gzip 压缩 | `flate2` 1.x | 纯 Rust DEFLATE 实现，tar.gz 归档必需的压缩层。 |
 | tar 打包 | `tar` 0.4 | 目录输出打包为单文件分发，配合 `flate2` 生成 `.tar.gz`。 |
-| async trait | `async-trait` 0.1 | Collector trait 的 async 方法需要此 proc macro。 |
+| 时间格式化 | `chrono` 0.4 | 输出目录名和 manifest 时间戳的本地时区格式化。 |
+| 错误类型 | `thiserror` 2.x | 派生 `std::error::Error` 实现，替代手写 `Result<T, String>`。 |
+| 日志 | `tracing` 0.1 + `tracing-subscriber` 0.3 | 结构化异步日志，替代 `eprintln!` / `println!`。 |
+| 临时文件 | `tempfile` 3.x | 原子临时文件创建 + `persist()` 重命名，消除 TOCTOU race 和 panic 安全问题。 |
 
-`procfs`、`zbus`、`neli`、`serde`、`serde_json`、`flate2`、`tar` 和 `async-trait` 均为纯 Rust，不依赖 C 代码。`nix` 和 `rtnetlink` 在构建树中依赖 `libc` crate 进行 syscall 绑定，`conntrack` 通过 `neli` 间接依赖 `libc`，但 musl 目标下全部链接到 musl libc 并静态打进二进制，不产生运行时动态库依赖。
+`procfs`、`zbus`、`neli`、`serde`、`serde_json`、`flate2`、`tar`、`chrono`、`thiserror`、`tracing`、`tracing-subscriber` 和 `tempfile` 均为纯 Rust，不依赖 C 代码。`nix` 和 `rtnetlink` 在构建树中依赖 `libc` crate 进行 syscall 绑定，`conntrack` 通过 `neli` 间接依赖 `libc`，但 musl 目标下全部链接到 musl libc 并静态打进二进制，不产生运行时动态库依赖。
 
 ## 影响
 

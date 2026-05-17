@@ -30,6 +30,7 @@
 | `docs/collector-security-governance.md` | 生效 | Collector 安全治理规范 |
 | `docs/collector-testing-governance.md` | 生效 | Collector 测试治理规范 |
 | `docs/collector-architecture.md` | 生效 | Collector 总体架构设计 |
+| `docs/phase-a-review.md` | 生效 | Phase A 实现审核报告（代码风格、crate 使用、异步惯用法） |
 | `docs/decisions/README.md` | 生效 | 设计决策记录目录 |
 | `docs/decisions/0001-runtime-info-boundary.md` | 生效 | Linux OS 运行时信息边界决策 |
 | `docs/decisions/0002-human-ai-governance.md` | 生效 | 人与 AI 共治执行模型决策 |

@@ -10,15 +10,15 @@
 
 ```
 src/
-  main.rs               # 入口：启动 runtime → 探测 → 采集 → 浓缩 → 打包
-  manifest.rs           # manifest.json 构建
-  summary.rs            # summary.json 指标计算
-  probe.rs              # 启动阶段一次性能力探测
-  output.rs             # 输出目录创建、JSON/JSONL 流式写入、截断控制
-  archive.rs            # tar.gz 打包与清理
+  main.rs               # 入口：初始化 tracing → 创建输出目录 → probe → spawn collect → manifest → summary → tar.gz
+  error.rs              # 错误类型（CollectError / OutputError / ArchiveError，thiserror 派生）
+  output.rs             # 输出目录创建、JSON/JSONL/Text 流式写入（tempfile 临时文件 + persist 原子重命名）、截断控制
+  manifest.rs           # manifest.json 构建（预留模块，当前内联于 main.rs）
+  summary.rs            # summary.json 指标计算（预留模块，当前内联于 main.rs）
+  archive.rs            # tar.gz 打包与清理（预留模块，当前内联于 main.rs）
 
-  collect/
-    mod.rs              # Collector trait 定义 + 注册表 + main loop
+  collector/
+    mod.rs              # CollectionTask enum 定义 + ProbeOutcome/CollectionOutcome/CollectionStatus 类型 + 串行 probe 分发
     boot.rs             # RT-01 启动实例身份
     kernel.rs           # RT-02 内核状态与参数
     systemd.rs          # RT-03 init/systemd 控制面
@@ -42,74 +42,64 @@ src/
     cache.rs            # RT-21 OS 缓存与解析器
 ```
 
-`collect/mod.rs` 的职责：
+`collector/mod.rs` 的职责：
 
-- 定义 `Collector` trait。
-- 持有所有 Collector 实例的注册表（一个 `Vec<Box<dyn Collector>>`）。
-- 对外暴露单入口：`async fn run_all(output_dir: &OutputDir) -> Manifest`。
+- 定义 `CollectionTask` enum，每个变体包装一个 collector struct。
+- 定义 `ProbeOutcome`、`CollectionOutcome`、`CollectionStatus` 返回类型。
+- 通过 enum dispatch (`match self`) 提供统一的 `id()`、`filename()`、`item_timeout()`、`probe()` 接口。
 
-## Collector trait
+所有 collector struct 均为 unit struct（零大小）。不使用 trait object 或动态分发。
+并发采集由 `main.rs` 直接调用各 struct 的 `collect()` 方法并通过 tokio `JoinSet` 调度。
+
+## CollectionTask enum 与返回类型
 
 ```rust
-use std::collections::HashMap;
-use std::time::Duration;
-use async_trait::async_trait;
+/// 所有 collector 的编译期注册表。
+pub enum CollectionTask {
+    Boot(boot::Boot),
+    Cpu(cpu::Cpu),
+    Memory(memory::Memory),
+    Process(process::Process),
+    // Phase B/C/D 追加变体
+}
+
+impl CollectionTask {
+    pub fn id(&self) -> &'static str { ... }
+    pub fn filename(&self) -> &'static str { ... }
+    pub fn item_timeout(&self) -> Duration { ... }
+    pub async fn probe(&self) -> ProbeOutcome { ... }
+}
 
 /// 一次能力探测的结果。
-pub struct ProbeResult {
-    pub status: ProbeStatus,
-    pub detail: HashMap<String, String>,
+pub struct ProbeOutcome {
+    pub available: bool,
+    pub degraded: Vec<String>,
+    pub reason: Option<String>,
 }
 
-pub enum ProbeStatus {
-    Available,
-    Degraded(Vec<String>),   // 部分接口不可用
-    Unavailable(String),      // 完全不可用
-}
-
-/// 一次采集的结果。
-pub struct CollectResult {
-    pub status: CollectStatus,
+/// 一次采集的结果。除 status/duration/file_size 外，还携带 summary 构建所需的提取值，
+/// 避免下游从磁盘重读已采集数据。
+pub struct CollectionOutcome {
+    pub status: CollectionStatus,
     pub duration: Duration,
     pub file_size: u64,
     pub items_total: Option<u64>,
     pub items_collected: Option<u64>,
-    pub error_reason: Option<String>,
+    // summary 提取值（仅相关 collector 填充）
+    pub mem_total_kb: Option<i64>,
+    pub mem_available_kb: Option<i64>,
+    pub hostname: Option<String>,
+    pub kernel_version: Option<String>,
+    pub boot_id: Option<String>,
+    pub uptime_seconds: Option<u64>,
 }
 
-pub enum CollectStatus {
+pub enum CollectionStatus {
     Ok,
-    Truncated(String),       // 因上限截断，附带原因
-    Degraded(Vec<String>),   // 部分子项降级
-    Failed(String),          // 完全失败
-    TimedOut,                // 超时
-}
-
-#[async_trait]
-pub trait Collector: Send + Sync {
-    /// 稳定标识，对应 RT-XX。
-    fn id(&self) -> &'static str;
-
-    /// 输出文件名（不含路径），如 "processes.jsonl"。
-    fn filename(&self) -> &'static str;
-
-    /// 该大类是否必采。false 表示选采，仅在剩余时间与资源允许时执行。
-    fn required(&self) -> bool { true }
-
-    /// 启动阶段的一次性探测。返回接口可用性、权限状态。
-    async fn probe(&self) -> ProbeResult;
-
-    /// 执行业务采集。接收 probe 阶段的结果以避免重复探测。
-    /// output 提供临时文件写入方法。
-    /// timeout 为逐项超时，调用方通过 tokio::time::timeout 包装。
-    /// 返回 Collector 自行设定的逐项超时（2s 或 10s）。
-    fn item_timeout(&self) -> Duration { Duration::from_secs(2) }
-
-    async fn collect(
-        &self,
-        output: &OutputDir,
-        probe: &ProbeResult,
-    ) -> CollectResult;
+    Truncated { reason: String },
+    Degraded { missing: Vec<String> },
+    Failed { reason: String },
+    TimedOut,
 }
 ```
 

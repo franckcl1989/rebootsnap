@@ -1,154 +1,134 @@
-use std::collections::HashMap;
-
-use async_trait::async_trait;
 use serde::Serialize;
+use std::time::Instant;
 
-use crate::collector::{CollectResult, CollectStatus, Collector, ProbeResult, ProbeStatus};
+use crate::collector::{CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::output::OutputDir;
 
-pub struct MemoryCollector;
-
-impl MemoryCollector {
-    pub fn new() -> Self {
-        MemoryCollector
-    }
-}
+pub struct Memory;
 
 #[derive(Serialize)]
-struct MeminfoValue {
+struct MeminfoEntry {
     key: String,
-    value_kb: Option<i64>,
-    value: Option<String>,
+    value_kb: i64,
 }
 
 #[derive(Serialize)]
 struct MemoryRecord {
-    collection: String,
-    meminfo: Vec<MeminfoValue>,
+    collection: &'static str,
+    meminfo: Vec<MeminfoEntry>,
     pressure_memory: Option<String>,
     vmstat: Option<String>,
     zoneinfo: Option<String>,
 }
 
-#[async_trait]
-impl Collector for MemoryCollector {
-    fn id(&self) -> &'static str {
-        "RT-06"
-    }
-
-    fn filename(&self) -> &'static str {
-        "memory.json"
-    }
-
-    async fn probe(&self) -> ProbeResult {
+impl Memory {
+    pub async fn probe(&self) -> ProbeOutcome {
         let files = [
             "/proc/meminfo",
             "/proc/pressure/memory",
             "/proc/vmstat",
             "/proc/zoneinfo",
         ];
-        let mut degraded = Vec::new();
-        for f in &files {
-            if !std::path::Path::new(f).exists() {
-                degraded.push(f.to_string());
-            }
-        }
+        let degraded: Vec<String> = files
+            .iter()
+            .filter(|f| !std::path::Path::new(f).exists())
+            .map(|s| s.to_string())
+            .collect();
+
         if degraded.len() == files.len() {
-            ProbeResult {
-                status: ProbeStatus::Unavailable("all memory files missing".to_string()),
-                detail: HashMap::new(),
+            ProbeOutcome {
+                available: false,
+                degraded: Vec::new(),
+                reason: Some("all memory files missing".into()),
             }
         } else if degraded.is_empty() {
-            ProbeResult {
-                status: ProbeStatus::Available,
-                detail: HashMap::new(),
+            ProbeOutcome {
+                available: true,
+                degraded: Vec::new(),
+                reason: None,
             }
         } else {
-            ProbeResult {
-                status: ProbeStatus::Degraded(degraded),
-                detail: HashMap::new(),
+            ProbeOutcome {
+                available: true,
+                degraded,
+                reason: None,
             }
         }
     }
 
-    async fn collect(
+    pub async fn collect(
         &self,
         output: &OutputDir,
-        _probe: &ProbeResult,
-    ) -> CollectResult {
-        let start = tokio::time::Instant::now();
+        _probe: &ProbeOutcome,
+    ) -> CollectionOutcome {
+        let start = Instant::now();
 
         fn read_raw(path: &str) -> Option<String> {
             std::fs::read_to_string(path).ok()
         }
 
-        fn parse_meminfo(raw: &str) -> Vec<MeminfoValue> {
-            raw.lines()
-                .filter_map(|line| {
-                    let mut parts = line.splitn(2, ':');
-                    let key = parts.next()?.trim().to_string();
-                    let val_str = parts.next()?.trim();
-                    let value_kb = val_str
-                        .split_whitespace()
-                        .next()?
-                        .parse::<i64>()
-                        .ok();
-                    Some(MeminfoValue {
-                        key,
-                        value_kb,
-                        value: Some(val_str.to_string()),
-                    })
-                })
-                .collect()
-        }
+        let mut entries: Vec<MeminfoEntry> = Vec::new();
+        let mut mem_total_kb: Option<i64> = None;
+        let mut mem_available_kb: Option<i64> = None;
 
-        let meminfo_raw = read_raw("/proc/meminfo");
-        let meminfo = meminfo_raw
-            .as_deref()
-            .map(parse_meminfo)
-            .unwrap_or_default();
-        let pressure_memory = read_raw("/proc/pressure/memory");
-        let vmstat = read_raw("/proc/vmstat");
-        let zoneinfo = read_raw("/proc/zoneinfo");
+        if let Some(raw) = read_raw("/proc/meminfo") {
+            for line in raw.lines() {
+                let Some((key, val)) = line.split_once(':') else {
+                    continue;
+                };
+                let key = key.trim().to_string();
+                let val_str = val.trim();
+                let value_kb = val_str
+                    .split_whitespace()
+                    .next()
+                    .and_then(|s| s.parse::<i64>().ok())
+                    .unwrap_or(0);
+                if key == "MemTotal" {
+                    mem_total_kb = Some(value_kb);
+                }
+                if key == "MemAvailable" {
+                    mem_available_kb = Some(value_kb);
+                }
+                entries.push(MeminfoEntry { key, value_kb });
+            }
+        }
+        entries.sort_by(|a, b| a.key.cmp(&b.key));
 
         let record = MemoryRecord {
-            collection: "RT-06".to_string(),
-            meminfo,
-            pressure_memory,
-            vmstat,
-            zoneinfo,
+            collection: "RT-06",
+            meminfo: entries,
+            pressure_memory: read_raw("/proc/pressure/memory"),
+            vmstat: read_raw("/proc/vmstat"),
+            zoneinfo: read_raw("/proc/zoneinfo"),
         };
 
-        match output.json_writer(MemoryCollector.filename()).await {
-            Ok(writer) => match writer.commit(&record).await {
-                Ok((size, _)) => {
-                    let duration = start.elapsed();
-                    CollectResult {
-                        status: CollectStatus::Ok,
-                        duration,
-                        file_size: size,
-                        items_total: None,
-                        items_collected: None,
-                        error_reason: None,
-                    }
-                }
-                Err(e) => CollectResult {
-                    status: CollectStatus::Failed(e),
-                    duration: start.elapsed(),
-                    file_size: 0,
-                    items_total: None,
-                    items_collected: None,
-                    error_reason: None,
-                },
-            },
-            Err(e) => CollectResult {
-                status: CollectStatus::Failed(e),
-                duration: start.elapsed(),
-                file_size: 0,
-                items_total: None,
-                items_collected: None,
-                error_reason: None,
-            },
-        }
+        let outcome = |status: CollectionStatus| CollectionOutcome {
+            status,
+            duration: start.elapsed(),
+            file_size: 0,
+            items_total: None,
+            items_collected: None,
+            mem_total_kb,
+            mem_available_kb,
+            hostname: None,
+            kernel_version: None,
+            boot_id: None,
+            uptime_seconds: None,
+        };
+
+        let Ok(writer) = output.json_writer("memory.json") else {
+            return outcome(CollectionStatus::Failed {
+                reason: "json writer creation failed".into(),
+            });
+        };
+        let Ok((size, _)) = writer.commit(&record).await else {
+            return outcome(CollectionStatus::Failed {
+                reason: "json write failed".into(),
+            });
+        };
+
+        let mut o = outcome(CollectionStatus::Ok);
+        o.file_size = size;
+        o
     }
 }

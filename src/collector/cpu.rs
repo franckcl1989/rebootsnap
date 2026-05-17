@@ -1,22 +1,14 @@
-use std::collections::HashMap;
-
-use async_trait::async_trait;
 use serde::Serialize;
+use std::time::Instant;
 
-use crate::collector::{CollectResult, CollectStatus, Collector, ProbeResult, ProbeStatus};
+use crate::collector::{CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::output::OutputDir;
 
-pub struct CpuCollector;
-
-impl CpuCollector {
-    pub fn new() -> Self {
-        CpuCollector
-    }
-}
+pub struct Cpu;
 
 #[derive(Serialize)]
 struct CpuRecord {
-    collection: String,
+    collection: &'static str,
     stat: Option<String>,
     loadavg: Option<String>,
     pressure_cpu: Option<String>,
@@ -24,17 +16,8 @@ struct CpuRecord {
     softirqs: Option<String>,
 }
 
-#[async_trait]
-impl Collector for CpuCollector {
-    fn id(&self) -> &'static str {
-        "RT-05"
-    }
-
-    fn filename(&self) -> &'static str {
-        "cpu.json"
-    }
-
-    async fn probe(&self) -> ProbeResult {
+impl Cpu {
+    pub async fn probe(&self) -> ProbeOutcome {
         let files = [
             "/proc/stat",
             "/proc/loadavg",
@@ -42,43 +25,46 @@ impl Collector for CpuCollector {
             "/proc/interrupts",
             "/proc/softirqs",
         ];
-        let mut degraded = Vec::new();
-        for f in &files {
-            if !std::path::Path::new(f).exists() {
-                degraded.push(f.to_string());
-            }
-        }
+        let degraded: Vec<String> = files
+            .iter()
+            .filter(|f| !std::path::Path::new(f).exists())
+            .map(|s| s.to_string())
+            .collect();
+
         if degraded.len() == files.len() {
-            ProbeResult {
-                status: ProbeStatus::Unavailable("all cpu files missing".to_string()),
-                detail: HashMap::new(),
+            ProbeOutcome {
+                available: false,
+                degraded: Vec::new(),
+                reason: Some("all cpu files missing".into()),
             }
         } else if degraded.is_empty() {
-            ProbeResult {
-                status: ProbeStatus::Available,
-                detail: HashMap::new(),
+            ProbeOutcome {
+                available: true,
+                degraded: Vec::new(),
+                reason: None,
             }
         } else {
-            ProbeResult {
-                status: ProbeStatus::Degraded(degraded),
-                detail: HashMap::new(),
+            ProbeOutcome {
+                available: true,
+                degraded,
+                reason: None,
             }
         }
     }
 
-    async fn collect(
+    pub async fn collect(
         &self,
         output: &OutputDir,
-        _probe: &ProbeResult,
-    ) -> CollectResult {
-        let start = tokio::time::Instant::now();
+        _probe: &ProbeOutcome,
+    ) -> CollectionOutcome {
+        let start = Instant::now();
 
         fn read_raw(path: &str) -> Option<String> {
             std::fs::read_to_string(path).ok()
         }
 
         let record = CpuRecord {
-            collection: "RT-05".to_string(),
+            collection: "RT-05",
             stat: read_raw("/proc/stat"),
             loadavg: read_raw("/proc/loadavg"),
             pressure_cpu: read_raw("/proc/pressure/cpu"),
@@ -86,36 +72,33 @@ impl Collector for CpuCollector {
             softirqs: read_raw("/proc/softirqs"),
         };
 
-        match output.json_writer(CpuCollector.filename()).await {
-            Ok(writer) => match writer.commit(&record).await {
-                Ok((size, _)) => {
-                    let duration = start.elapsed();
-                    CollectResult {
-                        status: CollectStatus::Ok,
-                        duration,
-                        file_size: size,
-                        items_total: None,
-                        items_collected: None,
-                        error_reason: None,
-                    }
-                }
-                Err(e) => CollectResult {
-                    status: CollectStatus::Failed(e),
-                    duration: start.elapsed(),
-                    file_size: 0,
-                    items_total: None,
-                    items_collected: None,
-                    error_reason: None,
-                },
-            },
-            Err(e) => CollectResult {
-                status: CollectStatus::Failed(e),
-                duration: start.elapsed(),
-                file_size: 0,
-                items_total: None,
-                items_collected: None,
-                error_reason: None,
-            },
-        }
+        let outcome = |status: CollectionStatus| CollectionOutcome {
+            status,
+            duration: start.elapsed(),
+            file_size: 0,
+            items_total: None,
+            items_collected: None,
+            mem_total_kb: None,
+            mem_available_kb: None,
+            hostname: None,
+            kernel_version: None,
+            boot_id: None,
+            uptime_seconds: None,
+        };
+
+        let Ok(writer) = output.json_writer("cpu.json") else {
+            return outcome(CollectionStatus::Failed {
+                reason: "json writer creation failed".into(),
+            });
+        };
+        let Ok((size, _)) = writer.commit(&record).await else {
+            return outcome(CollectionStatus::Failed {
+                reason: "json write failed".into(),
+            });
+        };
+
+        let mut o = outcome(CollectionStatus::Ok);
+        o.file_size = size;
+        o
     }
 }
