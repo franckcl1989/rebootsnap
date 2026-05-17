@@ -4,6 +4,45 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-17 - 多维度审计修复：ADR 对齐、依赖清理、代码规范化
+
+- **类型**：修复 / 文档 / 工程化
+- **范围**：`src/collector/`、`Cargo.toml`、`docs/decisions/0003-*`、`docs/decisions/0004-*`、`docs/collector-architecture.md`、`CHANGELOG.md`
+- **提交信息**：`fix(collector): align ADR 0004 filenames, remove unused deps, fix code drift`
+
+### 变更内容
+
+- ADR 0004 文件名对齐：`fd.json`→`fds.json`、`mount.json`→`mounts.json`、`session.json`→`sessions.json`、`device.json`→`devices.json`、`cache.json`→`caches.json`
+- RT-20 `events.json`→`dmesg.txt`，改为 `text_writer` 输出原始内核环形缓冲区
+- `events.rs`：`/dev/kmsg` 加入 probe，不可读时标记 `Degraded`
+- `netdev.rs`：`/proc/net/route` 等 4 个文件加入 probe，`raw()`→`read_raw()`
+- `tmpfs.rs`：`count_dir` 从模块级移至 `collect()` 局部作用域
+- `systemd.rs`：合并 `probe.degraded` 到最终状态
+- Fd/Mount/Socket 逐项超时从 2s/5s 改为 10s（与架构文档一致）
+- `Cargo.toml`：移除 3 个未使用依赖 `nix`、`rtnetlink`、`neli`（净减少编译时间）
+- ADR 0003：依赖表拆分为「当前生效」和「暂缓」两组，标注替代方案
+- ADR 0004：文件清单同步为实际输出名称
+- `docs/collector-architecture.md`：RT 表接口/crate/格式列同步为实际实现；代码示例更新为 21 variant
+- `docs/phase-a-review.md`：添加「历史性审核文档」标题注释
+- `CHANGELOG.md`：统一条目间分隔符（移除孤立 `---`）
+
+### 设计影响
+
+- 所有输出文件名现在与 ADR 0004 完全一致，工具消费者可按固定名称索引
+- `Cargo.toml` 中无任何未使用依赖，依赖声明与代码实际引用互相验证可自动化
+- `CollectionTask` 超时表与架构文档保持一致：常规 2s、量大 10s（RT-04/06/07/09/11/12）、systemd/netfilter 5s
+- 代码风格规范化：所有 collector 辅助函数均在 `collect()` 局部作用域内定义
+
+### 验证
+
+- `cargo build --release` 编译通过（零 warning），依赖树精简（−3 unused crates）
+- `cargo clippy` 零 warning
+- `scripts/verify.sh` exit 0
+- `cargo run --release -- /tmp` 生成 22 文件 tar.gz（RT-20 degraded 于非 root 环境，预期行为）
+- manifest.json 中 RT-20 正确标记 `degraded` + `missing: ["/dev/kmsg"]`
+
+---
+
 ## 2026-05-17 - Phase C+D：实现全部 17 个采集器，完成 RT-01 至 RT-21 全覆盖
 
 - **类型**：实现
@@ -35,8 +74,6 @@
 - `cargo run --release -- /tmp` 生成 23 文件 tar.gz（21 collector + manifest + summary）
 - `scripts/verify.sh` exit 0
 - 输出大小 72 KiB（tar.gz），全链路 runtime 验证通过
-
----
 
 ## 2026-05-17 - Phase B：实现 RT-03 systemd D-Bus 采集器
 
@@ -425,7 +462,7 @@
 - 新增 `AGENTS.md`，定义 AI 进入仓库后的必读顺序、工作规则、人类确认边界和输出要求。
 - 新增 `docs/project-governance.md`，定义人与 AI 共治目标、事实来源优先级、职责边界和质量门槛。
 - 新增 `docs/index.md`，作为文档地图和导航一致性规则。
-- 新增 `docs/glossary.md`，固定 RebootSnap、人机共治和运行时信息相关稳定术语。
+- 新增 `docs/glossary.md`，固定 RebootSnap、人与 AI 共治和运行时信息相关稳定术语。
 - 新增 `docs/project-map.yml`，提供机器可读的治理入口、规范入口、模板、校验命令和稳定术语。
 - 新增 `docs/templates/changelog-entry.md` 和 `docs/templates/decision-record.md`，固定常用治理模板。
 - 新增 `docs/decisions/README.md`，建立后续设计决策记录目录。

@@ -66,7 +66,7 @@ impl Fd {
             locks: read_raw(FILES[4]),
         };
 
-        let writer = match output.json_writer("fd.json") {
+        let writer = match output.json_writer("fds.json") {
             Ok(w) => w,
             Err(e) => {
                 return CollectionOutcome {

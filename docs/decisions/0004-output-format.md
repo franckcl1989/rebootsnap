@@ -30,21 +30,20 @@ rebootsnap-{timestamp}/
   processes.jsonl     # RT-04（大表）
   cpu.json            # RT-05
   memory.json         # RT-06
-  fds.jsonl           # RT-07（大表）
+  fds.json            # RT-07
   tmpfs.json          # RT-08
-  mounts.jsonl        # RT-09（大表）
+  mounts.json         # RT-09
   block.json          # RT-10
-  netdev.jsonl        # RT-11（大表）
-  sockets.jsonl       # RT-12（大表）
+  netdev.json         # RT-11
+  sockets.json        # RT-12
   netfilter.json      # RT-13
   ipc_ns_cg.json      # RT-14
-  sessions.jsonl      # RT-15（大表）
+  sessions.json       # RT-15
   security.json       # RT-16
   devices.json        # RT-17
   power.json          # RT-18
   time.json           # RT-19
   dmesg.txt           # RT-20（文本缓冲）
-  journal-tail.txt    # RT-20（文本缓冲）
   caches.json         # RT-21
 ```
 

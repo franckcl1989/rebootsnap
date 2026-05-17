@@ -63,7 +63,7 @@ impl Mount {
             filesystems: read_raw(FILES[3]),
         };
 
-        let writer = match output.json_writer("mount.json") {
+        let writer = match output.json_writer("mounts.json") {
             Ok(w) => w,
             Err(e) => {
                 return CollectionOutcome {

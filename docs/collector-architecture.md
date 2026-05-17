@@ -54,13 +54,15 @@ src/
 ## CollectionTask enum 与返回类型
 
 ```rust
-/// 所有 collector 的编译期注册表。
+/// 所有 collector 的编译期注册表（21 变体，RT-01 至 RT-21 全覆盖）。
 pub enum CollectionTask {
-    Boot(boot::Boot),
-    Cpu(cpu::Cpu),
-    Memory(memory::Memory),
-    Process(process::Process),
-    // Phase B/C/D 追加变体
+    Block(block::Block), Boot(boot::Boot), Cache(cache::Cache), Cpu(cpu::Cpu),
+    Device(device::Device), Events(events::Events), Fd(fd::Fd),
+    IpcNsCg(ipc_ns_cg::IpcNsCg), Kernel(kernel::Kernel), Memory(memory::Memory),
+    Mount(mount::Mount), Netdev(netdev::Netdev), Netfilter(netfilter::Netfilter),
+    Power(power::Power), Process(process::Process), Security(security::Security),
+    Session(session::Session), Socket(socket::Socket), Systemd(systemd::Systemd),
+    Time(time::Time), Tmpfs(tmpfs::Tmpfs),
 }
 
 impl CollectionTask {
@@ -68,6 +70,7 @@ impl CollectionTask {
     pub fn filename(&self) -> &'static str { ... }
     pub fn item_timeout(&self) -> Duration { ... }
     pub async fn probe(&self) -> ProbeOutcome { ... }
+    pub async fn collect(&self, output: &OutputDir, probe: &ProbeOutcome) -> CollectionOutcome { ... }
 }
 
 /// 一次能力探测的结果。
@@ -189,21 +192,21 @@ impl OutputDir {
 | RT-04 | 进程与线程 | `/proc/[pid]/*` | `procfs` | JSONL |
 | RT-05 | CPU 与调度 | `/proc/stat`, `/proc/loadavg`, `/proc/pressure/cpu`, `/proc/interrupts`, `/proc/softirqs` | std::fs | JSON |
 | RT-06 | 内存 | `/proc/meminfo`, `/proc/pressure/memory`, `/proc/vmstat`, `/proc/zoneinfo` | `std::fs` | JSON |
-| RT-07 | 打开句柄 | `/proc/[pid]/fd/`, `/proc/[pid]/fdinfo/`, `/proc/locks` | `procfs` | JSONL |
-| RT-08 | 临时文件系统 | `/run`, `/dev/shm`, `/tmp` 的 stat 信息 | std::fs | JSON |
-| RT-09 | VFS 与挂载 | `/proc/[pid]/mountinfo` | `procfs` | JSONL |
-| RT-10 | 块设备 | `/sys/block/*`, `/proc/diskstats`, `/proc/pressure/io` | std::fs | JSON |
-| RT-11 | 网络接口 | netlink RTM_GETLINK / RTM_GETADDR / RTM_GETROUTE / RTM_GETNEIGH | `rtnetlink` + `netlink-packet-route` | JSONL |
-| RT-12 | socket | `/proc/net/tcp`, `/proc/net/tcp6`, `/proc/net/udp`, `/proc/net/udp6`, `/proc/net/unix` | `procfs` | JSONL |
-| RT-13 | 包过滤 | conntrack netlink, nftables netlink (via neli), tc netlink | `conntrack`, `neli`, `rtnetlink` | JSON |
-| RT-14 | IPC/ns/cgroup | `/proc/[pid]/ns/`、`/proc/[pid]/cgroup`、`/proc/cgroups`、`/proc/sysvipc/`（等效于 ipcs 命令输出，不走命令调用） | `procfs` | JSON |
-| RT-15 | 用户会话 | `/proc/[pid]/loginuid`, `/var/run/utmp` | std::fs + `procfs` | JSONL |
-| RT-16 | 安全策略 | `/proc/[pid]/status`, `/proc/[pid]/attr/`, `/proc/sys/kernel/random/` | `procfs` | JSON |
-| RT-17 | 设备 | `/sys/devices/`, `/sys/bus/`, `/sys/class/`, `/sys/module/*/drivers/` | std::fs | JSON |
-| RT-18 | 电源 | `/sys/class/thermal/`, `/sys/power/`, `/sys/devices/system/cpu/cpufreq/` | std::fs | JSON |
-| RT-19 | 时间 | `/proc/timer_list`, org.freedesktop.timedate1 D-Bus, org.freedesktop.timesync1 D-Bus | std::fs + `zbus` | JSON |
-| RT-20 | 易失事件缓冲 | klogctl (SYSLOG_ACTION_READ_ALL), org.freedesktop.journald D-Bus | `nix` + `zbus` | .txt |
-| RT-21 | OS 缓存 | `/proc/slabinfo`, `/proc/meminfo` 中的 cache 字段 | std::fs | JSON |
+| RT-07 | 打开句柄 | `/proc/sys/fs/file-nr`, `/proc/sys/fs/file-max`, `/proc/sys/fs/inode-nr`, `/proc/sys/fs/inode-max`, `/proc/locks` | std::fs | JSON |
+| RT-08 | 临时文件系统 | `/proc/mounts`, `/run`, `/dev/shm`, `/tmp` 目录项计数 | std::fs | JSON |
+| RT-09 | VFS 与挂载 | `/proc/self/mountinfo`, `/proc/self/mounts`, `/proc/self/mountstats`, `/proc/filesystems` | std::fs | JSON |
+| RT-10 | 块设备 | `/proc/diskstats`, `/proc/partitions`, `/proc/pressure/io` | std::fs | JSON |
+| RT-11 | 网络接口 | `/sys/class/net/*`（接口属性 + 统计），`/proc/net/route`, `/proc/net/arp`, `/proc/net/netstat` | std::fs | JSON |
+| RT-12 | socket | `/proc/net/tcp`, `/proc/net/tcp6`, `/proc/net/udp`, `/proc/net/udp6`, `/proc/net/unix`, `/proc/net/raw`, `/proc/net/snmp` | std::fs | JSON |
+| RT-13 | 包过滤 | `/proc/net/nf_conntrack`, `/proc/net/stat/nf_conntrack`, `/proc/net/nf_tables_names`, `/proc/net/xfrm_stat` | std::fs | JSON |
+| RT-14 | IPC/ns/cgroup | `/proc/cgroups`, `/proc/sysvipc/msg`, `/proc/sysvipc/sem`, `/proc/sysvipc/shm` | std::fs | JSON |
+| RT-15 | 用户会话 | `/var/run/utmp`（文件大小与 mtime），`/etc/passwd`, `/etc/group` | std::fs | JSON |
+| RT-16 | 安全策略 | `/proc/sys/kernel/random/entropy_avail`, `/proc/sys/kernel/random/poolsize`, `/proc/sys/kernel/cap_last_cap`, `/proc/sys/crypto/fips_enabled` | std::fs | JSON |
+| RT-17 | 设备 | `/proc/devices`, `/proc/iomem` | std::fs | JSON |
+| RT-18 | 电源 | `/sys/power/state`, `/sys/power/disk` | std::fs | JSON |
+| RT-19 | 时间 | `/proc/timer_list`, `/sys/class/rtc/rtc0/date`, `/sys/class/rtc/rtc0/time` | std::fs | JSON |
+| RT-20 | 易失事件缓冲 | `/dev/kmsg`（内核环形缓冲区直读） | std::fs | .txt |
+| RT-21 | OS 缓存 | `/proc/slabinfo`, `/proc/meminfo` | std::fs | JSON |
 
 ## 实现阶段与优先级
 

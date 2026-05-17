@@ -54,7 +54,7 @@ impl Cache {
             meminfo: read_raw(FILES[1]),
         };
 
-        let writer = match output.json_writer("cache.json") {
+        let writer = match output.json_writer("caches.json") {
             Ok(w) => w,
             Err(e) => {
                 return CollectionOutcome {

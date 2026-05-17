@@ -63,7 +63,7 @@ impl Session {
             group_mtime: read_mtime(FILES[2]),
         };
 
-        let writer = match output.json_writer("session.json") {
+        let writer = match output.json_writer("sessions.json") {
             Ok(w) => w,
             Err(e) => {
                 return CollectionOutcome {

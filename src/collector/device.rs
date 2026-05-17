@@ -54,7 +54,7 @@ impl Device {
             iomem: read_raw(FILES[1]),
         };
 
-        let writer = match output.json_writer("device.json") {
+        let writer = match output.json_writer("devices.json") {
             Ok(w) => w,
             Err(e) => {
                 return CollectionOutcome {

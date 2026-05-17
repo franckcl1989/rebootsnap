@@ -37,29 +37,37 @@ struct InterfaceInfo {
 
 const PROBE_DIR: &str = "/sys/class/net";
 
+const PROBE_FILES: &[&str] = &[
+    "/proc/net/route",
+    "/proc/net/ipv6_route",
+    "/proc/net/arp",
+    "/proc/net/netstat",
+];
+
 impl Netdev {
     pub async fn probe(&self) -> ProbeOutcome {
-        match std::fs::read_dir(PROBE_DIR) {
-            Ok(mut entries) => {
-                if entries.next().is_some() {
-                    ProbeOutcome {
-                        available: true,
-                        degraded: Vec::new(),
-                        reason: None,
-                    }
-                } else {
-                    ProbeOutcome {
-                        available: false,
-                        degraded: Vec::new(),
-                        reason: Some("no network interfaces found".into()),
-                    }
-                }
-            }
-            Err(_) => ProbeOutcome {
+        let has_ifs = match std::fs::read_dir(PROBE_DIR) {
+            Ok(mut entries) => entries.next().is_some(),
+            Err(_) => false,
+        };
+        let file_result = crate::collector::probe_files(PROBE_FILES, "all net proc files missing");
+        if !has_ifs && !file_result.available {
+            return ProbeOutcome {
                 available: false,
                 degraded: Vec::new(),
-                reason: Some("net sysfs unavailable".into()),
-            },
+                reason: Some("net sysfs and proc files unavailable".into()),
+            };
+        }
+        let mut degraded: Vec<String> = if !has_ifs {
+            vec!["sysfs interface dir empty/missing".into()]
+        } else {
+            Vec::new()
+        };
+        degraded.extend(file_result.degraded);
+        ProbeOutcome {
+            available: true,
+            degraded,
+            reason: None,
         }
     }
 
@@ -126,7 +134,7 @@ impl Netdev {
             }
         }
 
-        fn raw(path: &str) -> Option<String> {
+        fn read_raw(path: &str) -> Option<String> {
             std::fs::read_to_string(path).ok()
         }
 
@@ -135,10 +143,10 @@ impl Netdev {
         let record = NetdevRecord {
             collection: "RT-11",
             interfaces,
-            routes_v4: raw("/proc/net/route"),
-            routes_v6: raw("/proc/net/ipv6_route"),
-            arp: raw("/proc/net/arp"),
-            netstat: raw("/proc/net/netstat"),
+            routes_v4: read_raw("/proc/net/route"),
+            routes_v6: read_raw("/proc/net/ipv6_route"),
+            arp: read_raw("/proc/net/arp"),
+            netstat: read_raw("/proc/net/netstat"),
         };
 
         let writer = match output.json_writer("netdev.json") {

@@ -18,11 +18,6 @@ struct TmpfsRecord {
 const MOUNTS_FILE: &str = "/proc/mounts";
 const RUNTIME_DIRS: &[&str] = &["/run", "/dev/shm", "/tmp"];
 
-fn count_dir(path: &str) -> Option<u64> {
-    let entries = std::fs::read_dir(path).ok()?;
-    Some(entries.flatten().count() as u64)
-}
-
 impl Tmpfs {
     pub async fn probe(&self) -> ProbeOutcome {
         let mounts_exists = std::path::Path::new(MOUNTS_FILE).exists();
@@ -85,6 +80,10 @@ impl Tmpfs {
 
         fn read_raw(path: &str) -> Option<String> {
             std::fs::read_to_string(path).ok()
+        }
+        fn count_dir(path: &str) -> Option<u64> {
+            let entries = std::fs::read_dir(path).ok()?;
+            Some(entries.flatten().count() as u64)
         }
 
         let record = TmpfsRecord {

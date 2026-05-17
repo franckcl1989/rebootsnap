@@ -1,25 +1,28 @@
-use serde::Serialize;
 use std::time::Instant;
 
-use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
+use crate::collector::{CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::output::OutputDir;
 
 pub struct Events;
 
-#[derive(Serialize)]
-struct EventsRecord {
-    collection: &'static str,
-    dmesg: Option<String>,
-    printk: Option<String>,
-}
-
 const FILES: &[&str] = &["/proc/sys/kernel/printk"];
 
-const DMESG_MAX: usize = 128 * 1024;
+const KMSG_PATH: &str = "/dev/kmsg";
 
 impl Events {
     pub async fn probe(&self) -> ProbeOutcome {
-        probe_files(FILES, "all events files missing")
+        let mut probe = crate::collector::probe_files(FILES, "all events files missing");
+        let kmsg_ok = std::fs::File::open(KMSG_PATH).is_ok();
+        if !kmsg_ok {
+            if probe.available {
+                probe.degraded.push(KMSG_PATH.into());
+            } else {
+                probe.available = true;
+                probe.reason = None;
+                probe.degraded.push(KMSG_PATH.into());
+            }
+        }
+        probe
     }
 
     pub async fn collect(
@@ -46,32 +49,14 @@ impl Events {
         }
         let start = Instant::now();
 
-        fn read_raw(path: &str) -> Option<String> {
-            std::fs::read_to_string(path).ok()
-        }
+        let dmesg_raw = std::fs::read_to_string(KMSG_PATH).ok();
+        let dmesg_bytes: Vec<u8> = dmesg_raw
+            .as_ref()
+            .map(|s| s.as_bytes().to_vec())
+            .unwrap_or_default();
+        let dmesg_ok = !dmesg_bytes.is_empty();
 
-        let raw_dmesg = read_raw("/dev/kmsg");
-        let dmesg = raw_dmesg.map(|s| {
-            if s.len() > DMESG_MAX {
-                let truncated = &s[..DMESG_MAX];
-                format!(
-                    "[RebootSnap: dmesg truncated from {} to {} bytes]\n{}",
-                    s.len(),
-                    DMESG_MAX,
-                    truncated
-                )
-            } else {
-                s
-            }
-        });
-
-        let record = EventsRecord {
-            collection: "RT-20",
-            dmesg,
-            printk: read_raw(FILES[0]),
-        };
-
-        let writer = match output.json_writer("events.json") {
+        let mut writer = match output.text_writer("dmesg.txt") {
             Ok(w) => w,
             Err(e) => {
                 return CollectionOutcome {
@@ -91,8 +76,27 @@ impl Events {
                 };
             }
         };
-        let (size, _) = match writer.commit(&record).await {
-            Ok(v) => v,
+
+        if let Err(e) = writer.write(&dmesg_bytes).await {
+            return CollectionOutcome {
+                status: CollectionStatus::Failed {
+                    reason: e.to_string(),
+                },
+                duration: start.elapsed(),
+                file_size: 0,
+                items_total: None,
+                items_collected: None,
+                mem_total_kb: None,
+                mem_available_kb: None,
+                hostname: None,
+                kernel_version: None,
+                boot_id: None,
+                uptime_seconds: None,
+            };
+        }
+
+        let file_size = match writer.finish().await {
+            Ok(s) => s,
             Err(e) => {
                 return CollectionOutcome {
                     status: CollectionStatus::Failed {
@@ -112,18 +116,23 @@ impl Events {
             }
         };
 
+        let mut degraded = probe.degraded.clone();
+        if !dmesg_ok {
+            degraded.push("dmesg: /dev/kmsg unreadable (permission denied)".into());
+        }
+
         CollectionOutcome {
-            status: if probe.degraded.is_empty() {
+            status: if degraded.is_empty() {
                 CollectionStatus::Ok
             } else {
                 CollectionStatus::Degraded {
-                    missing: probe.degraded.clone(),
+                    missing: degraded,
                 }
             },
             duration: start.elapsed(),
-            file_size: size,
+            file_size,
             items_total: None,
-            items_collected: None,
+            items_collected: if dmesg_ok { Some(1) } else { None },
             mem_total_kb: None,
             mem_available_kb: None,
             hostname: None,

@@ -54,18 +54,13 @@
 
 首轮目标平台 Rocky Linux 8.x / systemd / 内核 4.18.x / x86_64。其他平台不拒绝运行，但不承诺行为一致（按 `docs/collector-testing-governance.md` 记录 `unsupported platform`）。
 
-### Crate 依赖
+### Crate 依赖（当前生效）
 
 | 用途 | Crate | 选型理由 |
 | --- | --- | --- |
 | 异步运行时 | `tokio` 1.x (features: rt-multi-thread, fs, time, macros) | 多线程异步 runtime，所有异步采集、超时控制和并发调度。 |
-| /proc 解析（进程、meminfo、/proc/net/* 等） | `procfs` 0.18 | 纯 Rust，活跃维护，覆盖全部 /proc 文件语法解析。 |
+| /proc 解析（进程、meminfo 等） | `procfs` 0.18 | 纯 Rust，活跃维护，覆盖全部 /proc 文件语法解析。 |
 | systemd D-Bus 查询 | `zbus` 5.x | 纯 Rust，异步原生，零 C 依赖。 |
-| 网口、地址、路由、邻居查询 | `rtnetlink` 0.21 + `netlink-packet-route` | 纯 Rust netlink 协议栈，原生 tokio 后端。 |
-| conntrack 表查询 | `conntrack` crate | 社区存在且活跃维护，通过 netlink 读取连接跟踪表。备选路径 `/proc/net/nf_conntrack` 文本解析兜底。 |
-| nftables 规则集导出 | `neli` 0.7 构建 nftables netlink 消息 | `netlink-packet-netfilter` 已废弃约 3 年，社区无可用的 nftables crate。`neli` 是纯 Rust 泛型 netlink 库，用于构建 `NFNL_SUBSYS_NFTABLES` 消息。这不是从零手写 raw socket，而是使用已有 netlink 基础库构建上层协议消息。 |
-| qdisc/tc 查询 | `rtnetlink` tc 消息类型 + `neli` 兜底 | 优先 `rtnetlink` 已有封装，不足时用 `neli` 发送 `RTM_GETQDISC`。 |
-| dmesg 读取 | `nix::sys::syslog` | klogctl syscall 的标准封装。 |
 | 序列化 | `serde` 1.x + `serde_json` 1.x | 所有结构化输出。 |
 | gzip 压缩 | `flate2` 1.x | 纯 Rust DEFLATE 实现，tar.gz 归档必需的压缩层。 |
 | tar 打包 | `tar` 0.4 | 目录输出打包为单文件分发，配合 `flate2` 生成 `.tar.gz`。 |
@@ -74,7 +69,18 @@
 | 日志 | `tracing` 0.1 + `tracing-subscriber` 0.3 | 结构化异步日志，替代 `eprintln!` / `println!`。 |
 | 临时文件 | `tempfile` 3.x | 原子临时文件创建 + `persist()` 重命名，消除 TOCTOU race 和 panic 安全问题。 |
 
-`procfs`、`zbus`、`neli`、`serde`、`serde_json`、`flate2`、`tar`、`chrono`、`thiserror`、`tracing`、`tracing-subscriber` 和 `tempfile` 均为纯 Rust，不依赖 C 代码。`nix` 和 `rtnetlink` 在构建树中依赖 `libc` crate 进行 syscall 绑定，`conntrack` 通过 `neli` 间接依赖 `libc`，但 musl 目标下全部链接到 musl libc 并静态打进二进制，不产生运行时动态库依赖。
+### 暂缓依赖（当前未使用，Cargo.toml 中未声明）
+
+以下 crate 在首版设计中列入但当前实现通过更简单的 procfs/sysfs 路径替代。若后续需要深度集成 netlink、conntrack、nftables 或 klogctl，再重新引入。
+
+| 原用途 | 原 Crate | 当前替代方案 |
+| --- | --- | --- |
+| 网口/地址/路由/邻居 | `rtnetlink` + `netlink-packet-route` | RT-11 通过 `/sys/class/net/*` + `/proc/net/route` 读取 |
+| conntrack 表 | `conntrack` | RT-13 通过 `/proc/net/nf_conntrack` 文本解析 |
+| nftables 规则集 | `neli` | RT-13 通过 `/proc/net/nf_tables_names` 文本解析 |
+| dmesg 内核环形缓冲 | `nix::sys::syslog` | RT-20 通过 `/dev/kmsg` 直读 |
+
+`procfs`、`zbus`、`serde`、`serde_json`、`flate2`、`tar`、`chrono`、`thiserror`、`tracing`、`tracing-subscriber` 和 `tempfile` 均为纯 Rust，不依赖 C 代码。
 
 ## 影响
 

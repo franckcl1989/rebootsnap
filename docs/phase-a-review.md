@@ -1,5 +1,7 @@
 # Phase A 实现审核报告
 
+> **注意：本文为历史性审核文档。** 审核对象是 Phase A 代码（commit c2f7792），文中大部分问题已在后续提交中修复。当前代码状态见文档末尾的 Phase B/C/D 更新脚注。阅读本文时请以脚注中的实现状态为准。
+
 ## 定位
 
 本文是对 `feat(collector): implement Phase A framework` (c2f7792) 的全面代码审核。

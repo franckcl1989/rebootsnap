@@ -165,7 +165,7 @@ impl Systemd {
             }
         };
 
-        let mut degraded = Vec::new();
+        let mut degraded = probe.degraded.clone();
 
         let manager_version = get_manager_property_string(&conn, "Version").await;
         let architecture = get_manager_property_string(&conn, "Architecture").await;
