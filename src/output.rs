@@ -71,10 +71,14 @@ impl OutputDir {
             Ok(entries) => {
                 for entry in entries.flatten() {
                     let path = entry.path();
-                    if path.extension().map_or(false, |e| e == "tmp") {
-                        if let Err(e) = std::fs::remove_file(&path) {
-                            tracing::warn!("cannot remove temp file {}: {}", path.display(), e);
-                        }
+                    let is_temp = path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n.starts_with(".tmp"));
+                    if is_temp
+                        && let Err(e) = std::fs::remove_file(&path)
+                    {
+                        tracing::warn!("cannot remove temp file {}: {}", path.display(), e);
                     }
                 }
             }
@@ -130,8 +134,7 @@ impl JsonlWriter {
         let tf = match self.tf.as_mut() {
             Some(t) => t,
             None => {
-                return Err(OutputError::Io(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                return Err(OutputError::Io(std::io::Error::other(
                     "JsonlWriter already finished",
                 )));
             }
@@ -186,12 +189,11 @@ impl JsonlWriter {
     }
 
     pub async fn finish(mut self) -> (u64, u64) {
-        if self.byte_count > 0 {
-            if let Some(tf) = self.tf.take() {
-                if let Err(e) = tf.persist(&self.final_path) {
-                    tracing::error!("cannot persist {}: {}", self.final_path.display(), e);
-                }
-            }
+        if self.byte_count > 0
+            && let Some(tf) = self.tf.take()
+            && let Err(e) = tf.persist(&self.final_path)
+        {
+            tracing::error!("cannot persist {}: {}", self.final_path.display(), e);
         }
         (self.byte_count, self.item_count)
     }

@@ -4,6 +4,44 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-17 - Phase B：实现 RT-03 systemd D-Bus 采集器
+
+- **类型**：实现
+- **范围**：`src/collector/systemd.rs`、`src/collector/mod.rs`、`src/main.rs`、`src/collector/process.rs`、`src/output.rs`、`docs/phase-a-review.md`
+- **提交信息**：`feat(collector): implement RT-03 systemd Phase B D-Bus collector`
+
+### 变更内容
+
+- 新增 `src/collector/systemd.rs`，通过 `zbus` 连接 D-Bus system bus 调用 `org.freedesktop.systemd1.Manager` 接口。
+- 采集 `ListUnits()` 全部 unit 的 name/description/load/active/sub 状态。
+- 采集 `ListJobs()` 当前待处理 job（id/unit/type/state）。
+- 采集 `ListInhibitors()` 活动 inhibitor lock（what/who/why/mode/uid/pid）。
+- 采集 Manager 属性：Version、Architecture、Features、Virtualization。
+- probe 阶段通过 D-Bus `ListNames` 检查 `org.freedesktop.systemd1` 是否存在，确认 systemd 环境。
+- 输出为 `systemd.json`（JSON 格式，单文件）。
+- 在 `CollectionTask` enum 中注册 `Systemd` 变体，`all_tasks()` 中新增对应条目。
+- Systemd 逐项超时设为 5 秒（D-Bus 调用较 procfs 偏慢，非 systemd 环境快速降级）。
+- Manifest probe 中 `systemd` 字段从硬编码 `unavailable` 改为反映实际 probe 结果。
+- 修复 7 个 clippy 警告（`process.rs` 冗余 cast、`systemd.rs` `map_or`→`is_ok_and`、`output.rs` 可折叠 `if`/`is_some_and`/`Error::other`）。
+- 修复 `cleanup_tmp()` 遗留文件检测模式：`extension() == "tmp"` 不匹配 tempfile crate 的 `.tmpXXXXXX` 命名，改用 `file_name().starts_with(".tmp")`。
+- `systemd.rs` 字段 `virtualisation` 改为 `virtualization`，与 systemd D-Bus 属性名一致。
+- `docs/phase-a-review.md` 添加 Phase B 更新脚注，标注 RT-03 已实现、`ProbeSummary` 已重构移除。
+
+### 设计影响
+
+- RT-03 全部 14 个三级子项均为 `必采`，`ListUnits`/`ListJobs`/`ListInhibitors` 覆盖了 unit 状态、job 队列和 inhibitor 三大类。
+- Systemd 是按技术风险递增顺序实现的 Phase B 第一个 collector，验证了 `zbus` 异步 D-Bus 链路的可行性。
+- 个别 D-Bus 调用失败（如 `ListInhibitors` 因非 root 权限被拒绝）时，采集器标记 `Degraded` 并继续输出已获取数据，不阻止整体采集。
+- 非 systemd 环境（如容器、WSL）在 probe 阶段返回 `available: false`，采集安全跳过。
+
+### 验证
+
+- `cargo build --release` 编译通过（零 warning），`cargo clippy` 零 warning。
+- `cargo run --release -- /tmp` 运行成功，生成 7 文件 tar.gz（含 `systemd.json` 80 KiB、573 unit、0 job、0 inhibitor）。
+- `systemd.json` 包含 Manager 版本 259.5-0ubuntu3、x86-64 架构和 features 字符串。
+- Manifest probe `systemd` 字段为 `available`（probe 确认 systemd 在总线）。
+- `scripts/verify.sh` exit 0。
+
 ## 2026-05-17 - 审核修复：接入 error type、补齐校验覆盖、消除主循环重复
 
 - **类型**：修复 / 重构

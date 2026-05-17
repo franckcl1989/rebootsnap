@@ -94,7 +94,7 @@ impl Process {
             let name = stat.as_ref().map(|s| s.comm.clone()).filter(|s| !s.is_empty());
             let state = stat.as_ref().map(|s| format!("{}", s.state));
             let threads = stat.as_ref().map(|s| s.num_threads);
-            let uid = status.as_ref().map(|s| s.euid as u32);
+            let uid = status.as_ref().map(|s| s.euid);
             let cmdline = proc
                 .cmdline()
                 .ok()

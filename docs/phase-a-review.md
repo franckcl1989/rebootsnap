@@ -381,6 +381,8 @@ Rust 社区惯例：在 tokio 的 multi-threaded runtime 中，`std::time::Insta
 
 **修复**：保留匹配逻辑（Phase B/C 会用到），但加 `#[allow(dead_code)]` 标注。
 
+> **Phase B 更新 (2026-05-17)**: RT-03 已在 Phase B 实现（`systemd.rs`），`ProbeSummary` 已重构移除。RT-11/RT-12/RT-13 仍待 Phase C。
+
 ### 6.3 `TextWriter` 全结构未使用
 
 **涉及**：`output.rs:213-280`

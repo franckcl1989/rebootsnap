@@ -11,8 +11,8 @@ mod error;
 mod output;
 
 use collector::{
-    boot::Boot, cpu::Cpu, memory::Memory, process::Process, CollectionOutcome, CollectionStatus,
-    CollectionTask, ProbeOutcome,
+    boot::Boot, cpu::Cpu, memory::Memory, process::Process, systemd::Systemd,
+    CollectionOutcome, CollectionStatus, CollectionTask, ProbeOutcome,
 };
 use error::ArchiveError;
 use output::OutputDir;
@@ -108,9 +108,10 @@ fn loadavg() -> (Option<f64>, Option<f64>, Option<f64>) {
     )
 }
 
-fn all_tasks() -> [CollectionTask; 4] {
+fn all_tasks() -> [CollectionTask; 5] {
     [
         CollectionTask::Boot(Boot),
+        CollectionTask::Systemd(Systemd),
         CollectionTask::Process(Process),
         CollectionTask::Cpu(Cpu),
         CollectionTask::Memory(Memory),
@@ -199,7 +200,7 @@ async fn main() {
         probes.push(task.probe().await);
     }
 
-    let [p0, p1, p2, p3] = match <[ProbeOutcome; 4]>::try_from(probes) {
+    let [p0, p1, p2, p3, p4] = match <[ProbeOutcome; 5]>::try_from(probes) {
         Ok(a) => a,
         Err(_) => {
             tracing::error!("probe count changed unexpectedly");
@@ -223,9 +224,30 @@ async fn main() {
             ("RT-01".to_string(), "boot.json".to_string(), outcome)
         });
     }
+    let p1_systemd_available = p1.available;
+    let p1_systemd_reason = p1.reason.clone();
     {
         let root = manifest_dir.clone();
-        let probe = p3;
+        let probe = p1;
+        let item_timeout = std::time::Duration::from_secs(5);
+        set.spawn(async move {
+            let output = OutputDir::from_existing(root);
+            let outcome = tokio::time::timeout(
+                item_timeout,
+                Systemd.collect(&output, &probe),
+            )
+            .await
+            .unwrap_or_else(|_| timed_out_outcome());
+            (
+                "RT-03".to_string(),
+                "systemd.json".to_string(),
+                outcome,
+            )
+        });
+    }
+    {
+        let root = manifest_dir.clone();
+        let probe = p4;
         let item_timeout = std::time::Duration::from_secs(10);
         set.spawn(async move {
             let output = OutputDir::from_existing(root);
@@ -241,7 +263,7 @@ async fn main() {
     }
     {
         let root = manifest_dir.clone();
-        let probe = p2;
+        let probe = p3;
         set.spawn(async move {
             let output = OutputDir::from_existing(root);
             let outcome = tokio::time::timeout(
@@ -255,7 +277,7 @@ async fn main() {
     }
     {
         let root = manifest_dir.clone();
-        let probe = p1;
+        let probe = p2;
         set.spawn(async move {
             let output = OutputDir::from_existing(root);
             let outcome = tokio::time::timeout(
@@ -377,7 +399,11 @@ async fn main() {
             uptime_seconds: uptime,
         },
         probe: ManifestProbe {
-            systemd: "unavailable".into(),
+            systemd: if p1_systemd_available {
+                "available".into()
+            } else {
+                p1_systemd_reason.unwrap_or_else(|| "unavailable".into())
+            },
             netlink: "unavailable".into(),
             conntrack: "unavailable".into(),
             hidepid: String::new(),

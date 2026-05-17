@@ -4,8 +4,9 @@ pub mod boot;
 pub mod cpu;
 pub mod memory;
 pub mod process;
+pub mod systemd;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ProbeOutcome {
     pub available: bool,
     pub degraded: Vec<String>,
@@ -70,6 +71,7 @@ pub enum CollectionTask {
     Cpu(cpu::Cpu),
     Memory(memory::Memory),
     Process(process::Process),
+    Systemd(systemd::Systemd),
 }
 
 impl CollectionTask {
@@ -79,6 +81,7 @@ impl CollectionTask {
             CollectionTask::Cpu(_) => "RT-05",
             CollectionTask::Memory(_) => "RT-06",
             CollectionTask::Process(_) => "RT-04",
+            CollectionTask::Systemd(_) => "RT-03",
         }
     }
 
@@ -88,6 +91,7 @@ impl CollectionTask {
             CollectionTask::Cpu(_) => "cpu.json",
             CollectionTask::Memory(_) => "memory.json",
             CollectionTask::Process(_) => "processes.jsonl",
+            CollectionTask::Systemd(_) => "systemd.json",
         }
     }
 
@@ -95,6 +99,7 @@ impl CollectionTask {
         match self {
             CollectionTask::Process(_) => Duration::from_secs(10),
             CollectionTask::Memory(_) => Duration::from_secs(10),
+            CollectionTask::Systemd(_) => Duration::from_secs(5),
             _ => Duration::from_secs(2),
         }
     }
@@ -105,6 +110,7 @@ impl CollectionTask {
             CollectionTask::Cpu(c) => c.probe().await,
             CollectionTask::Memory(c) => c.probe().await,
             CollectionTask::Process(c) => c.probe().await,
+            CollectionTask::Systemd(c) => c.probe().await,
         }
     }
 }
