@@ -68,6 +68,8 @@
 | 错误类型 | `thiserror` 2.x | 派生 `std::error::Error` 实现，替代手写 `Result<T, String>`。 |
 | 日志 | `tracing` 0.1 + `tracing-subscriber` 0.3 | 结构化异步日志，替代 `eprintln!` / `println!`。 |
 | 临时文件 | `tempfile` 3.x | 原子临时文件创建 + `persist()` 重命名，消除 TOCTOU race 和 panic 安全问题。 |
+| netlink 路由/地址/tunnel/qdisc | `rtnetlink` 0.21 (feature: tokio_socket) + `netlink-packet-route` 0.30 | 纯 Rust async netlink，覆盖 RT-11 IP 地址/tunnel、RT-13 qdisc/XFRM SA/policy。 |
+| nftables netlink 规则 | `neli` 0.7 (features: async, netfilter) | 纯 Rust netlink，NFNL_SUBSYS_NFTABLES，覆盖 RT-13 nftables 规则内容。 |
 
 ### 暂缓依赖（当前未使用，Cargo.toml 中未声明）
 
@@ -75,12 +77,9 @@
 
 | 原用途 | 原 Crate | 当前替代方案 |
 | --- | --- | --- |
-| 网口/地址/路由/邻居 | `rtnetlink` + `netlink-packet-route` | RT-11 通过 `/sys/class/net/*` + `/proc/net/route` 读取 |
-| conntrack 表 | `conntrack` | RT-13 通过 `/proc/net/nf_conntrack` 文本解析 |
-| nftables 规则集 | `neli` | RT-13 通过 `/proc/net/nf_tables_names` + `/proc/net/ip_tables_names` 等 procfs 文本获取表名和 iptables 模块信息；实际 nftables 规则内容仍需 netlink（暂缓至 0.2.0） |
 | dmesg 内核环形缓冲 | `nix::sys::syslog` | RT-20 通过 `/dev/kmsg` 直读 |
 
-`procfs`、`zbus`、`serde`、`serde_json`、`flate2`、`tar`、`chrono`、`thiserror`、`tracing`、`tracing-subscriber` 和 `tempfile` 均为纯 Rust，不依赖 C 代码。
+`procfs`、`zbus`、`serde`、`serde_json`、`flate2`、`tar`、`chrono`、`thiserror`、`tracing`、`tracing-subscriber`、`tempfile`、`rtnetlink`、`netlink-packet-route` 和 `neli` 均为纯 Rust，不依赖 C 代码。
 
 ## 影响
 
@@ -104,6 +103,6 @@
 ## 验证
 
 - 人工核对所有选定 crate 均为纯 Rust、活跃维护且不引入运行期 C 依赖。
-- 人工确认 `netlink-packet-netfilter` 自 2023 年 7 月起未更新，社区无替代品，`neli` 是构建 nftables netlink 消息的最小可行方案。
+- `rtnetlink` 0.21.0 (2026-04) + `netlink-packet-route` 0.30.0 (2026-04) + `neli` 0.7.4 (2026-01) 均活跃维护，版本同步可用。
 - 人工审核硬编码参数值与 `docs/collector-security-governance.md` 中的约束值一致。
 - 本决策不引入新的外部服务、构建系统或发布流程依赖。

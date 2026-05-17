@@ -4,6 +4,31 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-17 - G1：引入 netlink 依赖 (rtnetlink + neli)，从暂缓转为生效
+
+- **类型**：实现 / 工程化
+- **范围**：`Cargo.toml`、`docs/decisions/0003-implementation-tech-stack.md`
+- **提交信息**：`feat(deps): add rtnetlink 0.21, netlink-packet-route 0.30, neli 0.7`
+
+### 变更内容
+
+- `Cargo.toml`：新增 3 个纯 Rust 依赖（rtnetlink 0.21 + netlink-packet-route 0.30 + neli 0.7）
+- ADR 0003：将 rtnetlink/netlink-packet-route/neli 从暂缓表移至生效表
+- ADR 0003：更新验证说明，移除过时的 `netlink-packet-netfilter` 引用
+- 总依赖从 12 增至 15，Cargo.lock 从 153 增至 210 packages
+
+### 设计影响
+
+- 开启 RT-11 (IP 地址/tunnel/qdisc) 和 RT-13 (nftables 规则/XFRM SA) 的 netlink 实现
+- 版本冲突已解决：rtnetlink 0.21.0 + netlink-packet-route 0.30.0 同步发布于 2026-04
+
+### 验证
+
+- `cargo build --release` 零 warning，`cargo clippy` 零 warning
+- `scripts/verify.sh` exit 0（`cargo test` 4/4 通过）
+
+---
+
 ## 2026-05-17 - 补齐 0.1.0 必采项覆盖：14 个 collector 扩展至决策文档完整必采
 
 - **类型**：实现
