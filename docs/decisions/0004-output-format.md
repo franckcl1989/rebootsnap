@@ -195,8 +195,8 @@ AI 代理的标准分析路径：
 
 1. 解压归档，读 `manifest.json` → 了解采集范围、降级情况和全局耗时。
 2. 读 `summary.json` → 获取关键指标，判断是否存在需要关注的异常方向。
-3. 根据指标定向进入对应 RT 文件 → 例如 OOM 钻入 `memory.json` 和 `processes.jsonl`，网络异常钻入 `sockets.jsonl` 和 `conntrack.jsonl`（如果有的话）。
-4. 交叉关联 → `pid` 从 `processes.jsonl` 关联到 `fds.jsonl` 和 `sockets.jsonl`，`inode` 从 `sockets.jsonl` 关联到 `processes.jsonl`。
+ 3. 根据指标定向进入对应 RT 文件 → 例如 OOM 钻入 `memory.json` 和 `processes.jsonl`，网络异常钻入 `sockets.json` 和 `netfilter.json`。
+4. 交叉关联 → `pid` 从 `processes.jsonl` 关联到 `fds.json` 和 `sockets.json`，`inode` 从 `sockets.json` 关联到 `processes.jsonl`。
 
 ## 影响
 

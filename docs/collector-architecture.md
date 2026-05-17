@@ -187,7 +187,7 @@ impl OutputDir {
 | RT | 大类 | 主要接口 | 主要 crate | 输出格式 |
 | --- | --- | --- | --- | --- |
 | RT-01 | 启动实例身份 | `/proc/sys/kernel/random/boot_id`, `/proc/uptime`, `/proc/version`, `/proc/cmdline`, `/proc/sys/kernel/hostname` | std::fs | JSON |
-| RT-02 | 内核状态 | `/proc/sys/` 下的 ostype, osrelease, tainted, core_pattern, panic, printk 等参数；`/proc/modules` | std::fs | JSON |
+| RT-02 | 内核状态 | `/proc/sys/kernel/ostype`, `/proc/sys/kernel/osrelease`, `/proc/modules`, `/proc/sys/kernel/tainted`, `/proc/sys/kernel/core_pattern`, `/proc/sys/kernel/panic`, `/proc/sys/kernel/printk` | std::fs | JSON |
 | RT-03 | 初始化系统 | org.freedesktop.systemd1 D-Bus | `zbus` | JSON |
 | RT-04 | 进程与线程 | `/proc/[pid]/*` | `procfs` | JSONL |
 | RT-05 | CPU 与调度 | `/proc/stat`, `/proc/loadavg`, `/proc/pressure/cpu`, `/proc/interrupts`, `/proc/softirqs` | std::fs | JSON |

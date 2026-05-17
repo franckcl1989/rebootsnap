@@ -1,9 +1,16 @@
+use serde::Serialize;
 use std::time::Instant;
 
 use crate::collector::{CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::output::OutputDir;
 
 pub struct Events;
+
+#[derive(Serialize)]
+struct EventsMarker {
+    collection: &'static str,
+    source: &'static str,
+}
 
 const FILES: &[&str] = &["/proc/sys/kernel/printk"];
 
@@ -50,11 +57,19 @@ impl Events {
         let start = Instant::now();
 
         let dmesg_raw = std::fs::read_to_string(KMSG_PATH).ok();
-        let dmesg_bytes: Vec<u8> = dmesg_raw
-            .as_ref()
-            .map(|s| s.as_bytes().to_vec())
-            .unwrap_or_default();
-        let dmesg_ok = !dmesg_bytes.is_empty();
+        let dmesg_bytes: Vec<u8> = {
+            let marker = EventsMarker {
+                collection: "RT-20",
+                source: "/dev/kmsg",
+            };
+            let mut prefix = serde_json::to_vec(&marker).unwrap_or_default();
+            prefix.push(b'\n');
+            if let Some(ref s) = dmesg_raw {
+                prefix.extend_from_slice(s.as_bytes());
+            }
+            prefix
+        };
+        let dmesg_ok = dmesg_raw.is_some();
 
         let mut writer = match output.text_writer("dmesg.txt") {
             Ok(w) => w,
@@ -118,7 +133,7 @@ impl Events {
 
         let mut degraded = probe.degraded.clone();
         if !dmesg_ok {
-            degraded.push("dmesg: /dev/kmsg unreadable (permission denied)".into());
+            degraded.push("dmesg: /dev/kmsg unreadable".into());
         }
 
         CollectionOutcome {

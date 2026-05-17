@@ -4,6 +4,33 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-17 - 第三轮审计修复：文档 precision、dmesg 自描述、分隔符统一
+
+- **类型**：修复 / 文档
+- **范围**：`src/collector/events.rs`、`docs/decisions/0004-output-format.md`、`docs/collector-architecture.md`、`CHANGELOG.md`
+- **提交信息**：`fix(collector): add collection marker to dmesg output, fix doc precision`
+
+### 变更内容
+
+- `events.rs`：增加 `EventsMarker` record struct，dmesg 输出前置 `{"collection":"RT-20","source":"/dev/kmsg"}\n` 自描述 JSON 行
+- `events.rs`：错误消息去除硬编码 `(permission denied)`，改为通用 `unreadable`
+- ADR 0004 AI 消费路径文本：`sockets.jsonl`→`sockets.json`、`fds.jsonl`→`fds.json`
+- `architecture.md` RT-02：路径从模糊 `/proc/sys/` 改为完整 `/proc/sys/kernel/ostype` 等精确路径
+- `CHANGELOG.md`：移除全部残留 `---` 分隔符，条目间统一使用空行分隔
+
+### 设计影响
+
+- dmesg.txt 现在与所有其他 collector 输出一致，携带 `collection` 自描述字段
+- RT 映射表所有路径均为可复现的精确路径
+
+### 验证
+
+- `cargo build --release` 编译通过（零 warning），`cargo clippy` 零 warning
+- `scripts/verify.sh` exit 0
+- dmesg.txt 首行为 `{"collection":"RT-20","source":"/dev/kmsg"}`（非 root 环境仅含标记行，预期行为）
+
+---
+
 ## 2026-05-17 - 第二轮审计修复：probe 降级传播、架构表同步
 
 - **类型**：修复 / 文档
@@ -31,8 +58,6 @@
 - `cargo build --release` 编译通过（零 warning），`cargo clippy` 零 warning
 - `scripts/verify.sh` exit 0
 - `cargo run --release -- /tmp` 生成 22 文件 tar.gz
-
----
 
 ## 2026-05-17 - 多维度审计修复：ADR 对齐、依赖清理、代码规范化
 
@@ -70,8 +95,6 @@
 - `scripts/verify.sh` exit 0
 - `cargo run --release -- /tmp` 生成 22 文件 tar.gz（RT-20 degraded 于非 root 环境，预期行为）
 - manifest.json 中 RT-20 正确标记 `degraded` + `missing: ["/dev/kmsg"]`
-
----
 
 ## 2026-05-17 - Phase C+D：实现全部 17 个采集器，完成 RT-01 至 RT-21 全覆盖
 
