@@ -4,6 +4,34 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-18 - 0.1.0 发布准备：CI 构建测试、README 使用说明、musl 静态验证
+
+- **类型**：实现 / 工程化
+- **范围**：`.github/workflows/change-management.yml`、`README.md`、`CHANGELOG.md`
+- **提交信息**：`feat(ci): add build and test to CI, update README for 0.1.0`
+
+### 变更内容
+
+- CI workflow：新增 `cargo build --release` 和 `cargo test --workspace` 步骤（使用 `dtolnay/rust-toolchain@stable`）
+- README 完全重写：Quick Start（构建+运行）、Requirements、输出文件列表（21 个 collector 说明）、Known Limitations（XFRM/nftables/journal）、Development 命令
+- musl 静态构建验证通过：`x86_64-unknown-linux-musl` 生产 static-pie ELF (3.6MB stripped)
+- 文件权限验证：所有输出文件 0600，输出目录 0700
+
+### 设计影响
+
+- 0.1.0 发布条件全部满足：功能完整 >95%、25 tests 全通过、musl 静态可构建、权限合规
+- CI 对 push 和 PR 均执行 build + test + verify + change-management 全流程
+
+### 验证
+
+- `cargo build --release` 零 warning，`cargo clippy` 零 warning
+- `cargo test --workspace` 25/25 pass
+- `cargo build --release --target x86_64-unknown-linux-musl` 产出 static-pie 3.6MB
+- `scripts/verify.sh` exit 0
+- 提取 tar.gz 验证输出文件权限均为 0600
+
+---
+
 ## 2026-05-18 - 0.1.0 就绪：文件权限 0600 + 21 个 collector 单元测试全覆盖
 
 - **类型**：实现 / 测试
