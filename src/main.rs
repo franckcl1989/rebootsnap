@@ -1,4 +1,5 @@
 use std::fs as std_fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::time::Instant;
@@ -301,6 +302,8 @@ async fn main() {
     let summary_path = manifest_dir.join("summary.json");
     if let Err(e) = std_fs::write(&summary_path, &summary_bytes) {
         tracing::error!("cannot write summary.json: {}", e);
+    } else {
+        std_fs::set_permissions(&summary_path, std::fs::Permissions::from_mode(0o600)).ok();
     }
 
     let systemd_probe = probe_map.get("RT-03").copied();
@@ -356,6 +359,8 @@ async fn main() {
     let manifest_path = manifest_dir.join("manifest.json");
     if let Err(e) = std_fs::write(&manifest_path, &manifest_bytes) {
         tracing::error!("cannot write manifest.json: {}", e);
+    } else {
+        std_fs::set_permissions(&manifest_path, std::fs::Permissions::from_mode(0o600)).ok();
     }
 
     output.cleanup_tmp();

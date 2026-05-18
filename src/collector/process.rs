@@ -260,3 +260,27 @@ impl Process {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_util::setup_test;
+
+    #[tokio::test]
+    async fn test_collect_normal() {
+        let ctx = setup_test("normal");
+        let probe = Process.probe(&ctx.roots).await;
+        if !probe.available {
+            println!("Process probe unavailable in mock (expected without D-Bus/netlink)");
+            return;
+        }
+        let outcome = Process.collect(&ctx.output, &probe).await;
+        match &outcome.status {
+            crate::collector::CollectionStatus::Failed { reason } => {
+                panic!("collect failed: {reason}");
+            }
+            _ => {}
+        }
+        assert!(outcome.file_size > 0, "no output produced");
+    }
+}

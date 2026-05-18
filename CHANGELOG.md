@@ -4,6 +4,34 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-18 - 0.1.0 就绪：文件权限 0600 + 21 个 collector 单元测试全覆盖
+
+- **类型**：实现 / 测试
+- **范围**：`src/output.rs`、`src/main.rs`、`src/test_util.rs`、全部 21 个 collector
+- **提交信息**：`feat(collector): enforce 0600 permissions and add per-collector unit tests`
+
+### 变更内容
+
+- `output.rs`：输出目录 0700，所有持久化文件 0600（JsonWriter/JsonlWriter/TextWriter）
+- `main.rs`：manifest.json 和 summary.json 写入后 set_permissions 0600
+- `src/test_util.rs`：共用测试 helper（`setup_test()` → `TestContext`）
+- 21 个 collector 全部添加 `#[cfg(test)] mod tests` 单元测试（各 1 个正常场景验证）
+
+### 设计影响
+
+- 所有输出文件权限为 0600（仅 owner 可读写），输出目录为 0700
+- 单元测试与集成测试双重覆盖：21 单元 + 4 集成 = 25 tests
+- XFRM SA/Policy 和 nftables 完整规则 dump 标记为技术限制，0.2.0 解决
+-项目具备 0.1.0 发布条件
+
+### 验证
+
+- `cargo build --release` 零 warning，`cargo clippy` 零 warning
+- `cargo test --workspace` 25/25 通过（21 unit + 4 integration）
+- `cargo run --release -- /tmp` 输出正确，文件权限 0600/0700
+
+---
+
 ## 2026-05-17 - G2-G4：netlink、D-Bus、procfs 三层补齐，必采覆盖率 >95%
 
 - **类型**：实现

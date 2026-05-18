@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use chrono::Local;
@@ -20,6 +21,7 @@ impl OutputDir {
         let dirname = format!("rebootsnap-{}", ts);
         let root = base_dir.join(&dirname);
         std::fs::create_dir_all(&root).map_err(OutputError::Io)?;
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).ok();
         tracing::info!("output directory: {}", root.display());
         Ok(OutputDir { root })
     }
@@ -108,6 +110,7 @@ impl JsonWriter {
         self.tf
             .persist(&self.final_path)
             .map_err(|e| OutputError::Io(e.error))?;
+        std::fs::set_permissions(&self.final_path, std::fs::Permissions::from_mode(0o600)).ok();
 
         Ok((size, None))
     }
@@ -191,9 +194,12 @@ impl JsonlWriter {
     pub async fn finish(mut self) -> (u64, u64) {
         if self.byte_count > 0
             && let Some(tf) = self.tf.take()
-            && let Err(e) = tf.persist(&self.final_path)
         {
-            tracing::error!("cannot persist {}: {}", self.final_path.display(), e);
+            if let Err(e) = tf.persist(&self.final_path) {
+                tracing::error!("cannot persist {}: {}", self.final_path.display(), e);
+            } else {
+                std::fs::set_permissions(&self.final_path, std::fs::Permissions::from_mode(0o600)).ok();
+            }
         }
         (self.byte_count, self.item_count)
     }
@@ -245,6 +251,7 @@ impl TextWriter {
             self.tf
                 .persist(&self.final_path)
                 .map_err(|e| OutputError::Io(e.error))?;
+            std::fs::set_permissions(&self.final_path, std::fs::Permissions::from_mode(0o600)).ok();
         }
         Ok(self.byte_count)
     }

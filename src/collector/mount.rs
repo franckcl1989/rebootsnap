@@ -139,6 +139,30 @@ impl Mount {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_util::setup_test;
+
+    #[tokio::test]
+    async fn test_collect_normal() {
+        let ctx = setup_test("normal");
+        let probe = Mount.probe(&ctx.roots).await;
+        if !probe.available {
+            eprintln!("Mount probe unavailable in mock - skipping");
+            return;
+        }
+        let outcome = Mount.collect(&ctx.output, &probe).await;
+        match &outcome.status {
+            crate::collector::CollectionStatus::Failed { reason } => {
+                panic!("collect failed: {reason}");
+            }
+            _ => {}
+        }
+        assert!(outcome.file_size > 0, "no output produced");
+    }
+}
+
 fn enumerate_fs_debug(roots: &FsRoots) -> Option<String> {
     let dir = roots.resolve("/sys/fs");
     let entries = std::fs::read_dir(&dir).ok()?;

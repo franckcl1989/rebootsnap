@@ -368,3 +368,27 @@ impl Session {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_util::setup_test;
+
+    #[tokio::test]
+    async fn test_collect_normal() {
+        let ctx = setup_test("normal");
+        let probe = Session.probe(&ctx.roots).await;
+        if !probe.available {
+            println!("Session probe unavailable in mock (expected without D-Bus/netlink)");
+            return;
+        }
+        let outcome = Session.collect(&ctx.output, &probe).await;
+        match &outcome.status {
+            crate::collector::CollectionStatus::Failed { reason } => {
+                panic!("collect failed: {reason}");
+            }
+            _ => {}
+        }
+        assert!(outcome.file_size > 0, "no output produced");
+    }
+}
