@@ -4,6 +4,35 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-18 - 0.1.0 首次正式发布
+
+- **类型**：实现
+- **范围**：`src/`、`dist/`、`CHANGELOG.md`
+- **提交信息**：`feat(project): v0.1.0 release`
+
+### 变更内容
+
+- 21 个 collector（RT-01 ~ RT-21）覆盖 172 个必采三级项，覆盖率 >95%
+- 16 个纯 Rust 依赖，零 C/C++/FFI，零外部命令调用
+- x86_64-unknown-linux-musl static-pie 二进制，3.6MB stripped
+- 目标平台 Rocky Linux 8.10 / kernel 4.18 / systemd >= 239 / x86_64
+- dist/ 目录包含预编译 musl 二进制
+
+### 设计影响
+
+- 必采覆盖率 >95%，选采项按决策约束轻量采集，暂缓项 12 个明确排除
+- 已知限制（0.2.0）：XFRM SA/Policy、nftables 完整规则 dump、top_consumers 进程排名、volatile journal 内容
+
+### 验证
+
+- `cargo build --release` 零 warning
+- `cargo clippy` 零 warning
+- `cargo test --workspace` 35/35 通过
+- `scripts/verify.sh` exit 0
+- Rocky Linux 8.10 远端 smoke test 通过（23 文件输出、权限 0600、D-Bus/netlink 正常）
+
+---
+
 ## 2026-05-18 - 最终打磨：clippy 修复 + events fixture 补全
 
 - **类型**：修复
