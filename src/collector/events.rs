@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::fs;
 use std::time::Instant;
 
+use crate::collector::util::{read_trimmed, SCHEMA_VERSION};
 use crate::collector::{CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::fs::FsRoots;
 use crate::output::OutputDir;
@@ -10,7 +11,8 @@ use crate::output::OutputDir;
 pub struct Events;
 
 #[derive(Serialize)]
-struct DmesgRecord {
+struct EventsRecord {
+    schema_version: &'static str,
     collection: &'static str,
     source: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -28,9 +30,19 @@ struct DmesgRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     dmesg_text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    volatile_journal: Option<String>,
+    volatile_journal: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     journal_machine_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    journal_kernel: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    journal_priority: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    journal_boots: Option<Vec<serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pstore_files: Option<Vec<serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pstore_systemd: Option<Vec<serde_json::Value>>,
 }
 
 const FILES: &[&str] = &[
@@ -44,7 +56,7 @@ const FILES: &[&str] = &[
 
 const KMSG_PATH: &str = "/dev/kmsg";
 
-fn query_volatile_journal(roots: &FsRoots) -> Option<(String, String)> {
+fn query_volatile_journal(roots: &FsRoots) -> Option<(serde_json::Value, String)> {
     let journal_dir = roots.resolve("/run/log/journal");
     let entries = fs::read_dir(&journal_dir).ok()?;
     let machine_id_dir = entries
@@ -71,13 +83,67 @@ fn query_volatile_journal(roots: &FsRoots) -> Option<(String, String)> {
         "machine_id": machine_id,
         "files": journal_files,
         "source": "/run/log/journal",
-        "note": "journal file enumeration only; full content requires journalctl or D-Bus GetJournal fd"
+        "note": "journal file enumeration only; content extraction via D-Bus GetJournal fd is deferred (zbus 5.x does not expose message fds)"
     });
-    Some((
-        serde_json::to_string(&result).ok()?,
-        machine_id,
-    ))
+    Some((result, machine_id))
 }
+
+async fn query_journal_boots() -> Option<Vec<serde_json::Value>> {
+    let conn = zbus::Connection::system().await.ok()?;
+    let reply = conn
+        .call_method(
+            Some("org.freedesktop.systemd1"),
+            "/org/freedesktop/systemd1",
+            Some("org.freedesktop.systemd1.Manager"),
+            "ListBoots",
+            &(),
+        )
+        .await
+        .ok()?;
+    let body = reply.body();
+    let boots: Vec<(String, u64, u64, u64)> = body.deserialize().ok()?;
+    let entries: Vec<_> = boots
+        .into_iter()
+        .map(|(id, _, _, _)| serde_json::json!({"boot_id": id}))
+        .collect();
+    Some(entries)
+}
+
+fn enumerate_pstore(roots: &FsRoots, pstore_path: &str) -> Option<Vec<serde_json::Value>> {
+    let root = roots.resolve(pstore_path);
+    let dir = match fs::read_dir(&root) {
+        Ok(d) => d,
+        Err(_) => return None,
+    };
+    let mut entries: Vec<serde_json::Value> = Vec::new();
+    for entry in dir.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+        let meta = fs::metadata(&path).ok();
+        let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+        let content = std::fs::read_to_string(&path).ok().map(|s| {
+            let max = 8192;
+            if s.len() > max { s[..max].to_string() } else { s }
+        });
+        entries.push(serde_json::json!({
+            "name": name,
+            "size": size,
+            "content": content,
+        }));
+        if entries.len() >= 20 {
+            break;
+        }
+    }
+    if entries.is_empty() { None } else { Some(entries) }
+}
+
+const UNSUPPORTED_IF_MISSING: &[&str] = &[
+    "/proc/sys/kernel/printk_dropped",
+    "/proc/sys/kernel/devkmsg_log",
+];
 
 impl Events {
     pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
@@ -119,12 +185,6 @@ impl Events {
         }
         let start = Instant::now();
 
-        fn read_trimmed(roots: &FsRoots, path: &str) -> Option<String> {
-            std::fs::read_to_string(roots.resolve(path))
-                .ok()
-                .map(|s| s.trim().to_string())
-        }
-
         let dmesg_text = read_trimmed(&probe.roots, KMSG_PATH);
         let dmesg_ok = dmesg_text.is_some();
 
@@ -133,7 +193,22 @@ impl Events {
                 .map(|(j, m)| (Some(j), Some(m)))
                 .unwrap_or((None, None));
 
-        let record = DmesgRecord {
+        let journal_boots = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            query_journal_boots(),
+        )
+        .await
+        .ok()
+        .flatten();
+
+        let journal_kernel: Option<String> = None;
+        let journal_priority: Option<String> = None;
+
+        let pstore_files = enumerate_pstore(&probe.roots, "/sys/fs/pstore");
+        let pstore_systemd = enumerate_pstore(&probe.roots, "/var/lib/systemd/pstore");
+
+        let record = EventsRecord {
+            schema_version: SCHEMA_VERSION,
             collection: "RT-20",
             source: "/dev/kmsg",
             printk_levels: read_trimmed(&probe.roots, FILES[0]),
@@ -145,6 +220,11 @@ impl Events {
             dmesg_text,
             volatile_journal,
             journal_machine_id,
+            journal_kernel,
+            journal_priority,
+            journal_boots,
+            pstore_files,
+            pstore_systemd,
         };
 
         let writer = match output.json_writer("dmesg.json") {
@@ -188,18 +268,24 @@ impl Events {
             }
         };
 
-        let mut degraded = probe.degraded.clone();
-        if !dmesg_ok {
-            degraded.push("dmesg: /dev/kmsg unreadable".into());
+        let (unsupported, mut degraded): (Vec<_>, Vec<_>) = probe.degraded.iter()
+            .cloned()
+            .partition(|f| UNSUPPORTED_IF_MISSING.contains(&f.as_str()));
+        let mut permission_denied = false;
+        if !dmesg_ok && degraded.contains(&KMSG_PATH.to_string()) {
+            degraded.retain(|f| f != KMSG_PATH);
+            permission_denied = true;
         }
 
         CollectionOutcome {
-            status: if degraded.is_empty() {
-                CollectionStatus::Ok
+            status: if permission_denied {
+                CollectionStatus::PermissionDenied
+            } else if !degraded.is_empty() {
+                CollectionStatus::Partial { degrading: degraded }
+            } else if !unsupported.is_empty() {
+                CollectionStatus::Unsupported { reason: unsupported.join(", ") }
             } else {
-                CollectionStatus::Degraded {
-                    missing: degraded,
-                }
+                CollectionStatus::Ok
             },
             duration: start.elapsed(),
             file_size: size,
@@ -229,11 +315,8 @@ mod tests {
             return;
         }
         let outcome = Events.collect(&ctx.output, &probe).await;
-        match &outcome.status {
-            crate::collector::CollectionStatus::Failed { reason } => {
-                panic!("collect failed: {reason}");
-            }
-            _ => {}
+        if let crate::collector::CollectionStatus::Failed { reason } = &outcome.status {
+            panic!("collect failed: {reason}");
         }
         assert!(outcome.file_size > 0, "no output produced");
     }

@@ -29,7 +29,9 @@ async fn run_collectors(roots: &FsRoots) -> Vec<(String, bool, String)> {
         let status = match &outcome.status {
             CollectionStatus::Ok => "ok",
             CollectionStatus::Truncated { .. } => "truncated",
-            CollectionStatus::Degraded { .. } => "degraded",
+            CollectionStatus::Partial { .. } => "partial",
+            CollectionStatus::Unsupported { .. } => "unsupported",
+            CollectionStatus::PermissionDenied => "permission_denied",
             CollectionStatus::Failed { .. } => "failed",
             CollectionStatus::TimedOut => "timed_out",
         };
@@ -46,7 +48,7 @@ async fn test_normal_scenario_all_collectors_produce_output() {
 
     let mut failed: Vec<String> = Vec::new();
     for (id, has_output, status) in &results {
-        if !has_output && status != "degraded" && status != "failed" {
+        if !has_output && status != "partial" && status != "failed" {
             failed.push(format!("{id}: no output, status={status}"));
         }
     }
@@ -57,14 +59,14 @@ async fn test_normal_scenario_all_collectors_produce_output() {
     );
 
     let ok_count = results.iter().filter(|(_, _, s)| s == "ok").count();
-    let degraded_count = results.iter().filter(|(_, _, s)| s == "degraded").count();
+    let degraded_count = results.iter().filter(|(_, _, s)| s == "partial").count();
     let total = results.len();
     assert_eq!(
-        total, 21,
-        "expected 21 collectors, got {total}"
+        total, 22,
+        "expected 22 collectors, got {total}"
     );
     assert!(
-        ok_count + degraded_count >= 18,
+         ok_count + degraded_count >= 19,
         "too many failures: ok={ok_count} degraded={degraded_count}"
     );
 }
@@ -116,9 +118,9 @@ async fn test_malformed_scenario_no_crash() {
     }
 
     let ok_count = results.iter().filter(|(_, _, s)| s == "ok").count();
-    let degraded_count = results.iter().filter(|(_, _, s)| s == "degraded").count();
+    let degraded_count = results.iter().filter(|(_, _, s)| s == "partial").count();
     assert!(
-        ok_count + degraded_count >= 10,
+         ok_count + degraded_count >= 11,
         "too many failures with malformed data: ok={ok_count} degraded={degraded_count}"
     );
 }
@@ -150,7 +152,7 @@ async fn test_global_timeout_graceful_exit() {
                         task.collect(&o, &probe),
                     )
                     .await
-                    .unwrap_or_else(|_| rebootsnap::collector::CollectionOutcome {
+                    .unwrap_or(rebootsnap::collector::CollectionOutcome {
                         status: CollectionStatus::TimedOut,
                         duration: std::time::Duration::ZERO,
                         file_size: 0,
@@ -205,7 +207,7 @@ async fn test_denied_scenario_handles_permission_errors() {
     let events_status = results.iter().find(|(id, _, _)| id == "RT-20").map(|(_, _, s)| s.clone());
     assert!(events_status.is_some(), "RT-20 missing from results");
     let es = events_status.unwrap();
-    assert!(es == "degraded" || es == "failed", "RT-20 should be degraded/failed when kmsg unreadable, got {es}");
+    assert!(es == "partial" || es == "failed" || es == "permission_denied", "RT-20 should be degraded/failed/denied when kmsg unreadable, got {es}");
 
     let systemd_status = results.iter().find(|(id, _, _)| id == "RT-03").map(|(_, _, s)| s.clone());
     assert!(systemd_status.is_some_and(|s| s != "ok"), "RT-03 should not be ok without D-Bus");

@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::path::Path;
 use std::time::Instant;
 
+use crate::collector::util::{read_trimmed, SCHEMA_VERSION};
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::fs::FsRoots;
 use crate::output::OutputDir;
@@ -11,6 +12,7 @@ pub struct IpcNsCg;
 
 #[derive(Serialize)]
 struct IpcNsCgRecord {
+    schema_version: &'static str,
     collection: &'static str,
     cgroups: Option<String>,
     sysv_ipc_msg: Option<String>,
@@ -20,12 +22,9 @@ struct IpcNsCgRecord {
     init_ns_ipc: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     init_cgroup: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    cgroup_tree_v1: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    cgroup_tree_v2: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    posix_mq_queues: Option<String>,
+    cgroup_tree_v1: Vec<CgroupV1Entry>,
+    cgroup_tree_v2: Vec<CgroupV2Entry>,
+    posix_mq_queues: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     mqueue_queues_max: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -133,45 +132,29 @@ fn read_init_cgroup(roots: &FsRoots) -> Option<String> {
     std::fs::read_to_string(roots.resolve("/proc/1/cgroup")).ok()
 }
 
-fn query_posix_mq(roots: &FsRoots) -> Option<String> {
+fn query_posix_mq(roots: &FsRoots) -> Vec<String> {
     let dir = roots.resolve("/dev/mqueue");
-    let entries = std::fs::read_dir(&dir).ok()?;
-    let names: Vec<String> = entries
+    let Ok(entries) = std::fs::read_dir(&dir) else { return Vec::new() };
+    entries
         .filter_map(|e| e.ok())
         .map(|e| e.file_name().to_string_lossy().to_string())
-        .collect();
-    if names.is_empty() {
-        None
-    } else {
-        serde_json::to_string(&names).ok()
-    }
+        .collect()
 }
 
-fn read_cgroup_v1(roots: &FsRoots) -> Option<String> {
+fn read_cgroup_v1(roots: &FsRoots) -> Vec<CgroupV1Entry> {
     let cgroup_root = roots.resolve("/sys/fs/cgroup");
-    if !cgroup_root.join("memory").is_dir() {
-        return None;
-    }
-    let dir_entries = std::fs::read_dir(&cgroup_root).ok()?;
+    if !cgroup_root.join("memory").is_dir() { return Vec::new() }
+    let Ok(dir_entries) = std::fs::read_dir(&cgroup_root) else { return Vec::new() };
     let mut result: Vec<CgroupV1Entry> = Vec::new();
     for entry in dir_entries.flatten() {
         let path = entry.path();
-        if !path.is_dir() {
-            continue;
-        }
-        let Some(controller) = path.file_name().and_then(|n| n.to_str()) else {
-            continue;
-        };
+        if !path.is_dir() { continue }
+        let Some(controller) = path.file_name().and_then(|n| n.to_str()) else { continue };
         walk_cgroup_v1(&path, &cgroup_root, controller, 0, &mut result);
-        if result.len() >= 50 {
-            break;
-        }
-    }
-    if result.is_empty() {
-        return None;
+        if result.len() >= 50 { break }
     }
     result.truncate(50);
-    serde_json::to_string(&result).ok()
+    result
 }
 
 fn walk_cgroup_v1(
@@ -228,18 +211,13 @@ fn collect_cgroup_v1_entry(dir: &Path, controller: &str, path: &str) -> CgroupV1
     }
 }
 
-fn read_cgroup_v2(roots: &FsRoots) -> Option<String> {
+fn read_cgroup_v2(roots: &FsRoots) -> Vec<CgroupV2Entry> {
     let cgroup_root = roots.resolve("/sys/fs/cgroup");
-    if !cgroup_root.join("cgroup.controllers").is_file() {
-        return None;
-    }
+    if !cgroup_root.join("cgroup.controllers").is_file() { return Vec::new() }
     let mut result: Vec<CgroupV2Entry> = Vec::new();
     walk_cgroup_v2(&cgroup_root, "", 0, &mut result);
-    if result.is_empty() {
-        return None;
-    }
     result.truncate(50);
-    serde_json::to_string(&result).ok()
+    result
 }
 
 fn walk_cgroup_v2(dir: &Path, rel_path: &str, depth: u32, result: &mut Vec<CgroupV2Entry>) {
@@ -348,24 +326,21 @@ impl IpcNsCg {
         }
         let start = Instant::now();
 
-        fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
-            std::fs::read_to_string(roots.resolve(path)).ok()
-        }
-
         let record = IpcNsCgRecord {
+            schema_version: SCHEMA_VERSION,
             collection: "RT-14",
-            cgroups: read_raw(&probe.roots, FILES[0]),
-            sysv_ipc_msg: read_raw(&probe.roots, FILES[1]),
-            sysv_ipc_sem: read_raw(&probe.roots, FILES[2]),
-            sysv_ipc_shm: read_raw(&probe.roots, FILES[3]),
+            cgroups: read_trimmed(&probe.roots, FILES[0]),
+            sysv_ipc_msg: read_trimmed(&probe.roots, FILES[1]),
+            sysv_ipc_sem: read_trimmed(&probe.roots, FILES[2]),
+            sysv_ipc_shm: read_trimmed(&probe.roots, FILES[3]),
             init_ns_ipc: read_init_ns_ipc(&probe.roots),
             init_cgroup: read_init_cgroup(&probe.roots),
             cgroup_tree_v1: read_cgroup_v1(&probe.roots),
             cgroup_tree_v2: read_cgroup_v2(&probe.roots),
             posix_mq_queues: query_posix_mq(&probe.roots),
-            mqueue_queues_max: read_raw(&probe.roots, FILES[4]),
-            mqueue_msg_max: read_raw(&probe.roots, FILES[5]),
-            mqueue_msgsize_max: read_raw(&probe.roots, FILES[6]),
+            mqueue_queues_max: read_trimmed(&probe.roots, FILES[4]),
+            mqueue_msg_max: read_trimmed(&probe.roots, FILES[5]),
+            mqueue_msgsize_max: read_trimmed(&probe.roots, FILES[6]),
         };
 
         let writer = match output.json_writer("ipc_ns_cg.json") {
@@ -413,8 +388,8 @@ impl IpcNsCg {
             status: if probe.degraded.is_empty() {
                 CollectionStatus::Ok
             } else {
-                CollectionStatus::Degraded {
-                    missing: probe.degraded.clone(),
+                CollectionStatus::Partial {
+                    degrading: probe.degraded.clone(),
                 }
             },
             duration: start.elapsed(),
@@ -445,11 +420,8 @@ mod tests {
             return;
         }
         let outcome = IpcNsCg.collect(&ctx.output, &probe).await;
-        match &outcome.status {
-            crate::collector::CollectionStatus::Failed { reason } => {
-                panic!("collect failed: {reason}");
-            }
-            _ => {}
+        if let crate::collector::CollectionStatus::Failed { reason } = &outcome.status {
+            panic!("collect failed: {reason}");
         }
         assert!(outcome.file_size > 0, "no output produced");
     }

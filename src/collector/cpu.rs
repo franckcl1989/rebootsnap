@@ -1,12 +1,19 @@
 use serde::Serialize;
 use std::time::Instant;
 
+use crate::collector::util::{read_trimmed, SCHEMA_VERSION};
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::fs::FsRoots;
 use crate::output::OutputDir;
 
 #[derive(Clone)]
 pub struct Cpu;
+
+#[derive(Serialize)]
+struct VulnEntry {
+    name: String,
+    status: String,
+}
 
 #[derive(Serialize)]
 struct CpuTopologyEntry {
@@ -18,6 +25,7 @@ struct CpuTopologyEntry {
 
 #[derive(Serialize)]
 struct CpuRecord {
+    schema_version: &'static str,
     collection: &'static str,
     stat: Option<String>,
     loadavg: Option<String>,
@@ -29,6 +37,8 @@ struct CpuRecord {
     cpu_isolated: Option<String>,
     smt_control: Option<String>,
     nohz_full: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    vulnerabilities: Option<Vec<VulnEntry>>,
 }
 
 const FILES: &[&str] = &[
@@ -40,6 +50,10 @@ const FILES: &[&str] = &[
     "/sys/devices/system/cpu/isolated",
     "/sys/devices/system/cpu/smt/control",
     "/sys/devices/system/cpu/nohz_full",
+];
+
+const UNSUPPORTED_IF_MISSING: &[&str] = &[
+    "/proc/pressure/cpu",
 ];
 
 impl Cpu {
@@ -71,10 +85,6 @@ impl Cpu {
         }
         let start = Instant::now();
 
-        fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
-            std::fs::read_to_string(roots.resolve(path)).ok()
-        }
-
         let cpu_topology = {
             let cpu_base = "/sys/devices/system/cpu";
             let cpu_dir = probe.roots.resolve(cpu_base);
@@ -89,22 +99,20 @@ impl Cpu {
                         Ok(v) => v,
                         Err(_) => continue,
                     };
-                    let online = read_raw(
+                    let online = read_trimmed(
                         &probe.roots,
                         &format!("{}/cpu{}/online", cpu_base, id),
                     )
-                    .map(|s| s.trim() == "1")
+                    .map(|s| s == "1")
                     .unwrap_or(false);
-                    let core_id = read_raw(
+                    let core_id = read_trimmed(
                         &probe.roots,
                         &format!("{}/cpu{}/topology/core_id", cpu_base, id),
-                    )
-                    .map(|s| s.trim().to_string());
-                    let thread_siblings = read_raw(
+                    );
+                    let thread_siblings = read_trimmed(
                         &probe.roots,
                         &format!("{}/cpu{}/topology/thread_siblings_list", cpu_base, id),
-                    )
-                    .map(|s| s.trim().to_string());
+                    );
                     entries.push(CpuTopologyEntry {
                         id,
                         online,
@@ -121,16 +129,33 @@ impl Cpu {
         };
 
         let record = CpuRecord {
+            schema_version: SCHEMA_VERSION,
             collection: "RT-05",
-            stat: read_raw(&probe.roots, FILES[0]),
-            loadavg: read_raw(&probe.roots, FILES[1]),
-            pressure_cpu: read_raw(&probe.roots, FILES[2]),
-            interrupts: read_raw(&probe.roots, FILES[3]),
-            softirqs: read_raw(&probe.roots, FILES[4]),
+            stat: read_trimmed(&probe.roots, FILES[0]),
+            loadavg: read_trimmed(&probe.roots, FILES[1]),
+            pressure_cpu: read_trimmed(&probe.roots, FILES[2]),
+            interrupts: read_trimmed(&probe.roots, FILES[3]),
+            softirqs: read_trimmed(&probe.roots, FILES[4]),
             cpu_topology,
-            cpu_isolated: read_raw(&probe.roots, FILES[5]),
-            smt_control: read_raw(&probe.roots, FILES[6]),
-            nohz_full: read_raw(&probe.roots, FILES[7]),
+            cpu_isolated: read_trimmed(&probe.roots, FILES[5]),
+            smt_control: read_trimmed(&probe.roots, FILES[6]),
+            nohz_full: read_trimmed(&probe.roots, FILES[7]),
+            vulnerabilities: {
+                let vuln_dir = probe.roots.resolve("/sys/devices/system/cpu/vulnerabilities");
+                let mut vulns = Vec::new();
+                if let Ok(dir) = std::fs::read_dir(&vuln_dir) {
+                    for entry in dir.flatten() {
+                        let name = entry.file_name().to_string_lossy().into_owned();
+                        let status = std::fs::read_to_string(entry.path())
+                            .ok()
+                            .map(|s| s.trim().to_string());
+                        if let Some(status) = status {
+                            vulns.push(VulnEntry { name, status });
+                        }
+                    }
+                }
+                if vulns.is_empty() { None } else { Some(vulns) }
+            },
         };
 
         let writer = match output.json_writer("cpu.json") {
@@ -174,13 +199,17 @@ impl Cpu {
             }
         };
 
+        let (unsupported, degraded): (Vec<_>, Vec<_>) = probe.degraded.iter()
+            .cloned()
+            .partition(|f| UNSUPPORTED_IF_MISSING.contains(&f.as_str()));
+
         CollectionOutcome {
-            status: if probe.degraded.is_empty() {
-                CollectionStatus::Ok
+            status: if !degraded.is_empty() {
+                CollectionStatus::Partial { degrading: degraded }
+            } else if !unsupported.is_empty() {
+                CollectionStatus::Unsupported { reason: unsupported.join(", ") }
             } else {
-                CollectionStatus::Degraded {
-                    missing: probe.degraded.clone(),
-                }
+                CollectionStatus::Ok
             },
             duration: start.elapsed(),
             file_size: size,
@@ -210,11 +239,8 @@ mod tests {
             return;
         }
         let outcome = Cpu.collect(&ctx.output, &probe).await;
-        match &outcome.status {
-            crate::collector::CollectionStatus::Failed { reason } => {
-                panic!("collect failed: {reason}");
-            }
-            _ => {}
+        if let crate::collector::CollectionStatus::Failed { reason } = &outcome.status {
+            panic!("collect failed: {reason}");
         }
         assert!(outcome.file_size > 0, "no output produced");
     }

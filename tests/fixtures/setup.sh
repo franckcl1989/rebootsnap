@@ -483,4 +483,12 @@ touch "$base/etc/ld.so.cache" "$base/etc/ld.so.conf"
 echo "slabinfo - version: 2.1" > "$base/proc/slabinfo"
 echo "dentry 100 100 192 50 50" >> "$base/proc/slabinfo"
 
-echo "fixtures/normal: all 21 collector probe paths created"
+# ===== filesystem.rs (RT-22) =====
+mkdir -p "$base/sys/class/block/sda"
+echo "209715200" > "$base/sys/class/block/sda/size"
+echo "8:0" > "$base/sys/class/block/sda/dev"
+mkdir -p "$base/sys/class/block/sda/device"
+echo "ID_FS_UUID=abc-def-123" > "$base/sys/class/block/sda/device/uevent"
+echo "ID_FS_LABEL=root" >> "$base/sys/class/block/sda/device/uevent"
+
+echo "fixtures/normal: all 22 collector probe paths created"

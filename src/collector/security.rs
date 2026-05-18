@@ -1,6 +1,7 @@
 use serde::Serialize;
 use std::time::Instant;
 
+use crate::collector::util::{read_trimmed, SCHEMA_VERSION};
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::fs::FsRoots;
 use crate::output::OutputDir;
@@ -10,6 +11,7 @@ pub struct Security;
 
 #[derive(Serialize)]
 struct SecurityRecord {
+    schema_version: &'static str,
     collection: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     entropy_avail: Option<String>,
@@ -85,6 +87,11 @@ const FILES: &[&str] = &[
     "/proc/sys/net/ipv4/conf/all/log_martians",
 ];
 
+const UNSUPPORTED_IF_MISSING: &[&str] = &[
+    "/proc/sys/kernel/audit_backlog_limit",
+    "/proc/sys/kernel/audit_backlog_wait_time",
+];
+
 impl Security {
     pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
         probe_files(roots, FILES, "all security files missing")
@@ -114,36 +121,33 @@ impl Security {
         }
         let start = Instant::now();
 
-        fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
-            std::fs::read_to_string(roots.resolve(path)).ok()
-        }
-
         let record = SecurityRecord {
+            schema_version: SCHEMA_VERSION,
             collection: "RT-16",
-            entropy_avail: read_raw(&probe.roots, FILES[0]),
-            poolsize: read_raw(&probe.roots, FILES[1]),
-            read_wakeup_threshold: read_raw(&probe.roots, FILES[2]),
-            urandom_min_reseed_secs: read_raw(&probe.roots, FILES[3]),
-            cap_last_cap: read_raw(&probe.roots, FILES[4]),
-            seccomp_actions_avail: read_raw(&probe.roots, FILES[5]),
-            seccomp_actions_logged: read_raw(&probe.roots, FILES[6]),
-            audit_backlog_limit: read_raw(&probe.roots, FILES[7]),
-            audit_backlog_wait_time: read_raw(&probe.roots, FILES[8]),
-            ima_policy: read_raw(&probe.roots, FILES[9]),
-            lsm: read_raw(&probe.roots, FILES[10]),
-            lockdown: read_raw(&probe.roots, FILES[11]),
-            fips_enabled: read_raw(&probe.roots, FILES[12]),
-            ip_forward: read_raw(&probe.roots, FILES[13]),
-            ipv6_forwarding: read_raw(&probe.roots, FILES[14]),
-            rp_filter: read_raw(&probe.roots, FILES[15]),
-            tcp_syncookies: read_raw(&probe.roots, FILES[16]),
-            selinux_enforce: read_raw(&probe.roots, "/sys/fs/selinux/enforce"),
-            printk_ratelimit: read_raw(&probe.roots, "/proc/sys/kernel/printk_ratelimit"),
-            printk_ratelimit_burst: read_raw(&probe.roots, "/proc/sys/kernel/printk_ratelimit_burst"),
-            accept_redirects: read_raw(&probe.roots, FILES[17]),
-            send_redirects: read_raw(&probe.roots, FILES[18]),
-            secure_redirects: read_raw(&probe.roots, FILES[19]),
-            log_martians: read_raw(&probe.roots, FILES[20]),
+            entropy_avail: read_trimmed(&probe.roots, FILES[0]),
+            poolsize: read_trimmed(&probe.roots, FILES[1]),
+            read_wakeup_threshold: read_trimmed(&probe.roots, FILES[2]),
+            urandom_min_reseed_secs: read_trimmed(&probe.roots, FILES[3]),
+            cap_last_cap: read_trimmed(&probe.roots, FILES[4]),
+            seccomp_actions_avail: read_trimmed(&probe.roots, FILES[5]),
+            seccomp_actions_logged: read_trimmed(&probe.roots, FILES[6]),
+            audit_backlog_limit: read_trimmed(&probe.roots, FILES[7]),
+            audit_backlog_wait_time: read_trimmed(&probe.roots, FILES[8]),
+            ima_policy: read_trimmed(&probe.roots, FILES[9]),
+            lsm: read_trimmed(&probe.roots, FILES[10]),
+            lockdown: read_trimmed(&probe.roots, FILES[11]),
+            fips_enabled: read_trimmed(&probe.roots, FILES[12]),
+            ip_forward: read_trimmed(&probe.roots, FILES[13]),
+            ipv6_forwarding: read_trimmed(&probe.roots, FILES[14]),
+            rp_filter: read_trimmed(&probe.roots, FILES[15]),
+            tcp_syncookies: read_trimmed(&probe.roots, FILES[16]),
+            selinux_enforce: read_trimmed(&probe.roots, "/sys/fs/selinux/enforce"),
+            printk_ratelimit: read_trimmed(&probe.roots, "/proc/sys/kernel/printk_ratelimit"),
+            printk_ratelimit_burst: read_trimmed(&probe.roots, "/proc/sys/kernel/printk_ratelimit_burst"),
+            accept_redirects: read_trimmed(&probe.roots, FILES[17]),
+            send_redirects: read_trimmed(&probe.roots, FILES[18]),
+            secure_redirects: read_trimmed(&probe.roots, FILES[19]),
+            log_martians: read_trimmed(&probe.roots, FILES[20]),
         };
 
         let writer = match output.json_writer("security.json") {
@@ -187,13 +191,17 @@ impl Security {
             }
         };
 
+        let (unsupported, degraded): (Vec<_>, Vec<_>) = probe.degraded.iter()
+            .cloned()
+            .partition(|f| UNSUPPORTED_IF_MISSING.contains(&f.as_str()));
+
         CollectionOutcome {
-            status: if probe.degraded.is_empty() {
-                CollectionStatus::Ok
+            status: if !degraded.is_empty() {
+                CollectionStatus::Partial { degrading: degraded }
+            } else if !unsupported.is_empty() {
+                CollectionStatus::Unsupported { reason: unsupported.join(", ") }
             } else {
-                CollectionStatus::Degraded {
-                    missing: probe.degraded.clone(),
-                }
+                CollectionStatus::Ok
             },
             duration: start.elapsed(),
             file_size: size,
@@ -223,11 +231,8 @@ mod tests {
             return;
         }
         let outcome = Security.collect(&ctx.output, &probe).await;
-        match &outcome.status {
-            crate::collector::CollectionStatus::Failed { reason } => {
-                panic!("collect failed: {reason}");
-            }
-            _ => {}
+        if let crate::collector::CollectionStatus::Failed { reason } = &outcome.status {
+            panic!("collect failed: {reason}");
         }
         assert!(outcome.file_size > 0, "no output produced");
     }

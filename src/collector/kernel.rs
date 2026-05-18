@@ -1,6 +1,7 @@
 use serde::Serialize;
 use std::time::Instant;
 
+use crate::collector::util::{read_trimmed, SCHEMA_VERSION};
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::fs::FsRoots;
 use crate::output::OutputDir;
@@ -9,7 +10,15 @@ use crate::output::OutputDir;
 pub struct Kernel;
 
 #[derive(Serialize)]
+struct MceBankEntry {
+    cpu: String,
+    bank: String,
+    value: String,
+}
+
+#[derive(Serialize)]
 struct KernelRecord {
+    schema_version: &'static str,
     collection: &'static str,
     ostype: Option<String>,
     osrelease: Option<String>,
@@ -31,6 +40,12 @@ struct KernelRecord {
     kexec_crash_loaded: Option<String>,
     kexec_crash_size: Option<String>,
     livepatch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mce_banks: Option<Vec<MceBankEntry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    kernel_counters: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    irq_affinity: Option<Vec<serde_json::Value>>,
 }
 
 const FILES: &[&str] = &[
@@ -54,6 +69,10 @@ const FILES: &[&str] = &[
     "/sys/kernel/kexec_crash_loaded",
     "/sys/kernel/kexec_crash_size",
     "/sys/kernel/livepatch",
+];
+
+const UNSUPPORTED_IF_MISSING: &[&str] = &[
+    "/proc/sys/kernel/hung_task_check_interval_secs",
 ];
 
 impl Kernel {
@@ -85,31 +104,28 @@ impl Kernel {
         }
         let start = Instant::now();
 
-        fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
-            std::fs::read_to_string(roots.resolve(path)).ok()
-        }
-
         let record = KernelRecord {
+            schema_version: SCHEMA_VERSION,
             collection: "RT-02",
-            ostype: read_raw(&probe.roots, FILES[0]),
-            osrelease: read_raw(&probe.roots, FILES[1]),
-            modules: read_raw(&probe.roots, FILES[2]),
-            tainted: read_raw(&probe.roots, FILES[3]),
-            core_pattern: read_raw(&probe.roots, FILES[4]),
-            panic: read_raw(&probe.roots, FILES[5]),
-            printk: read_raw(&probe.roots, FILES[6]),
-            watchdog: read_raw(&probe.roots, FILES[7]),
-            soft_watchdog: read_raw(&probe.roots, FILES[8]),
-            nmi_watchdog: read_raw(&probe.roots, FILES[9]),
-            kexec_load_disabled: read_raw(&probe.roots, FILES[10]),
-            hung_task_panic: read_raw(&probe.roots, FILES[11]),
-            hung_task_timeout_secs: read_raw(&probe.roots, FILES[12]),
-            hung_task_check_interval_secs: read_raw(&probe.roots, FILES[13]),
-            sysrq: read_raw(&probe.roots, FILES[14]),
-            panic_on_oops: read_raw(&probe.roots, FILES[15]),
-            unknown_nmi_panic: read_raw(&probe.roots, FILES[16]),
-            kexec_crash_loaded: read_raw(&probe.roots, FILES[17]),
-            kexec_crash_size: read_raw(&probe.roots, FILES[18]),
+            ostype: read_trimmed(&probe.roots, FILES[0]),
+            osrelease: read_trimmed(&probe.roots, FILES[1]),
+            modules: read_trimmed(&probe.roots, FILES[2]),
+            tainted: read_trimmed(&probe.roots, FILES[3]),
+            core_pattern: read_trimmed(&probe.roots, FILES[4]),
+            panic: read_trimmed(&probe.roots, FILES[5]),
+            printk: read_trimmed(&probe.roots, FILES[6]),
+            watchdog: read_trimmed(&probe.roots, FILES[7]),
+            soft_watchdog: read_trimmed(&probe.roots, FILES[8]),
+            nmi_watchdog: read_trimmed(&probe.roots, FILES[9]),
+            kexec_load_disabled: read_trimmed(&probe.roots, FILES[10]),
+            hung_task_panic: read_trimmed(&probe.roots, FILES[11]),
+            hung_task_timeout_secs: read_trimmed(&probe.roots, FILES[12]),
+            hung_task_check_interval_secs: read_trimmed(&probe.roots, FILES[13]),
+            sysrq: read_trimmed(&probe.roots, FILES[14]),
+            panic_on_oops: read_trimmed(&probe.roots, FILES[15]),
+            unknown_nmi_panic: read_trimmed(&probe.roots, FILES[16]),
+            kexec_crash_loaded: read_trimmed(&probe.roots, FILES[17]),
+            kexec_crash_size: read_trimmed(&probe.roots, FILES[18]),
             livepatch: {
                 std::fs::read_dir(probe.roots.resolve(FILES[19]))
                     .ok()
@@ -119,6 +135,9 @@ impl Kernel {
                     })
                     .or_else(|| Some("absent".to_string()))
             },
+            mce_banks: None,
+            kernel_counters: None,
+            irq_affinity: None,
         };
 
         let writer = match output.json_writer("kernel.json") {
@@ -162,13 +181,17 @@ impl Kernel {
             }
         };
 
+        let (unsupported, degraded): (Vec<_>, Vec<_>) = probe.degraded.iter()
+            .cloned()
+            .partition(|f| UNSUPPORTED_IF_MISSING.contains(&f.as_str()));
+
         CollectionOutcome {
-            status: if probe.degraded.is_empty() {
-                CollectionStatus::Ok
+            status: if !degraded.is_empty() {
+                CollectionStatus::Partial { degrading: degraded }
+            } else if !unsupported.is_empty() {
+                CollectionStatus::Unsupported { reason: unsupported.join(", ") }
             } else {
-                CollectionStatus::Degraded {
-                    missing: probe.degraded.clone(),
-                }
+                CollectionStatus::Ok
             },
             duration: start.elapsed(),
             file_size: size,
@@ -198,11 +221,8 @@ mod tests {
             return;
         }
         let outcome = Kernel.collect(&ctx.output, &probe).await;
-        match &outcome.status {
-            crate::collector::CollectionStatus::Failed { reason } => {
-                panic!("collect failed: {reason}");
-            }
-            _ => {}
+        if let crate::collector::CollectionStatus::Failed { reason } = &outcome.status {
+            panic!("collect failed: {reason}");
         }
         assert!(outcome.file_size > 0, "no output produced");
     }

@@ -4,6 +4,7 @@ use rtnetlink::new_connection;
 use serde::Serialize;
 use std::time::{Duration, Instant};
 
+use crate::collector::util::{read_trimmed, SCHEMA_VERSION};
 use crate::collector::{CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::fs::FsRoots;
 use crate::output::OutputDir;
@@ -13,6 +14,7 @@ pub struct Netdev;
 
 #[derive(Serialize)]
 struct NetdevRecord {
+    schema_version: &'static str,
     collection: &'static str,
     interfaces: Vec<InterfaceInfo>,
     routes_v4: Option<String>,
@@ -20,9 +22,9 @@ struct NetdevRecord {
     arp: Option<String>,
     netstat: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    ip_addresses: Option<String>,
+    ip_addresses: Option<Vec<IpAddrEntry>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tunnel_info: Option<String>,
+    tunnel_info: Option<Vec<TunnelEntry>>,
 }
 
 #[derive(Serialize, Clone)]
@@ -44,6 +46,22 @@ struct InterfaceInfo {
     stats_tx_dropped: Option<u64>,
 }
 
+#[derive(Serialize)]
+struct IpAddrEntry {
+    ifindex: u32,
+    family: u8,
+    prefix_len: u8,
+    scope: u8,
+    flags: u8,
+}
+
+#[derive(Serialize)]
+struct TunnelEntry {
+    ifindex: u32,
+    name: String,
+    kind: String,
+}
+
 const PROBE_DIR: &str = "/sys/class/net";
 
 const PROBE_FILES: &[&str] = &[
@@ -53,7 +71,7 @@ const PROBE_FILES: &[&str] = &[
     "/proc/net/netstat",
 ];
 
-async fn query_ip_addresses() -> Option<String> {
+async fn query_ip_addresses() -> Option<Vec<IpAddrEntry>> {
     let (conn, handle, _) = new_connection().ok()?;
     tokio::spawn(conn);
 
@@ -61,13 +79,13 @@ async fn query_ip_addresses() -> Option<String> {
     let mut stream = handle.address().get().execute();
     while let Some(Ok(msg)) = stream.next().await {
         let header = &msg.header;
-        entries.push(serde_json::json!({
-            "ifindex": header.index,
-            "family": u8::from(header.family),
-            "prefix_len": header.prefix_len,
-            "scope": u8::from(header.scope),
-            "flags": header.flags.bits(),
-        }));
+        entries.push(IpAddrEntry {
+            ifindex: header.index,
+            family: u8::from(header.family),
+            prefix_len: header.prefix_len,
+            scope: u8::from(header.scope),
+            flags: header.flags.bits(),
+        });
         if entries.len() >= 200 {
             break;
         }
@@ -76,11 +94,11 @@ async fn query_ip_addresses() -> Option<String> {
     if entries.is_empty() {
         None
     } else {
-        serde_json::to_string(&entries).ok()
+        Some(entries)
     }
 }
 
-async fn query_tunnel_links() -> Option<String> {
+async fn query_tunnel_links() -> Option<Vec<TunnelEntry>> {
     let (conn, handle, _) = new_connection().ok()?;
     tokio::spawn(conn);
 
@@ -117,11 +135,11 @@ async fn query_tunnel_links() -> Option<String> {
                 "sit" | "ipip" | "gre" | "ip6gre" | "ip6tnl" | "vti" | "xfrm" | "gretap" | "ip6gretap" | "vxlan" | "geneve"
             );
             if is_tunnel {
-                entries.push(serde_json::json!({
-                    "ifindex": msg.header.index,
-                    "name": name,
-                    "kind": k,
-                }));
+                entries.push(TunnelEntry {
+                    ifindex: msg.header.index,
+                    name,
+                    kind: k.clone(),
+                });
             }
         }
         if entries.len() >= 100 {
@@ -132,7 +150,7 @@ async fn query_tunnel_links() -> Option<String> {
     if entries.is_empty() {
         None
     } else {
-        serde_json::to_string(&entries).ok()
+        Some(entries)
     }
 }
 
@@ -228,10 +246,6 @@ impl Netdev {
             }
         }
 
-        fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
-            std::fs::read_to_string(roots.resolve(path)).ok()
-        }
-
         let iface_count = interfaces.len() as u64;
 
         let (ip_addrs, tunnels) = tokio::join!(
@@ -240,12 +254,13 @@ impl Netdev {
         );
 
         let record = NetdevRecord {
+            schema_version: SCHEMA_VERSION,
             collection: "RT-11",
             interfaces,
-            routes_v4: read_raw(&probe.roots, "/proc/net/route"),
-            routes_v6: read_raw(&probe.roots, "/proc/net/ipv6_route"),
-            arp: read_raw(&probe.roots, "/proc/net/arp"),
-            netstat: read_raw(&probe.roots, "/proc/net/netstat"),
+            routes_v4: read_trimmed(&probe.roots, "/proc/net/route"),
+            routes_v6: read_trimmed(&probe.roots, "/proc/net/ipv6_route"),
+            arp: read_trimmed(&probe.roots, "/proc/net/arp"),
+            netstat: read_trimmed(&probe.roots, "/proc/net/netstat"),
             ip_addresses: ip_addrs.ok().flatten(),
             tunnel_info: tunnels.ok().flatten(),
         };
@@ -300,8 +315,8 @@ impl Netdev {
             status: if degraded.is_empty() {
                 CollectionStatus::Ok
             } else {
-                CollectionStatus::Degraded {
-                    missing: degraded,
+                CollectionStatus::Partial {
+                    degrading: degraded,
                 }
             },
             duration: start.elapsed(),
@@ -332,11 +347,8 @@ mod tests {
             return;
         }
         let outcome = Netdev.collect(&ctx.output, &probe).await;
-        match &outcome.status {
-            crate::collector::CollectionStatus::Failed { reason } => {
-                panic!("collect failed: {reason}");
-            }
-            _ => {}
+        if let crate::collector::CollectionStatus::Failed { reason } = &outcome.status {
+            panic!("collect failed: {reason}");
         }
         assert!(outcome.file_size > 0, "no output produced");
     }

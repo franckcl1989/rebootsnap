@@ -21,22 +21,23 @@ target/release/rebootsnap /tmp
 
 ## Output
 
-The tar.gz archive contains 21 collector output files + manifest.json + summary.json:
+The tar.gz archive contains 22 collector output files + manifest.json + summary.json:
 
 | File | Contents |
 |---|---|
 | `boot.json` | Hostname, kernel version, boot ID, uptime |
-| `kernel.json` | Kernel parameters, modules, taint, watchdog, kexec/crash |
+| `kernel.json` | Kernel parameters, modules, taint, watchdog, kexec/crash, MCE banks, IRQ affinity |
 | `systemd.json` | Unit states, job queue, inhibitors, failed unit details |
-| `processes.jsonl` | Per-process identity, state, scheduling, limits, namespaces, cgroup |
-| `cpu.json` | CPU statistics, interrupts, softirqs, pressure, topology |
-| `memory.json` | Memory usage, swap, NUMA, zram, THP, OOM, KSM, hugepages |
-| `fds.json` | File descriptor and inode counters, locks |
+| `processes.jsonl` | Per-process identity, state, scheduling, limits, namespaces, cgroup, memory RSS/VmSwap, I/O, FD count, capabilities |
+| `cpu.json` | CPU statistics, interrupts, softirqs, pressure, topology, vulnerabilities |
+| `memory.json` | Memory usage, swap, NUMA, zram, THP, OOM, KSM, hugepages, buddyinfo |
+| `fds.json` | File descriptor and inode counters, nr_open, pid_max, locks |
 | `tmpfs.json` | tmpfs mount stats, runtime directory entry counts |
 | `mounts.json` | Mount topology, mountstats, filesystem types |
-| `block.json` | Disk I/O, partition table, per-device queue/dm/loop/zram info |
+| `block.json` | Disk I/O, partition table, per-device queue/dm/loop/zram info, I/O stat fields |
+| `filesystem.json` | Per-mount capacity (bytes/inodes), critical dir capacity, block device inventory |
 | `netdev.json` | Network interfaces, routing, ARP, netstat, IP addresses, tunnels |
-| `sockets.json` | TCP/UDP/Unix socket tables, protocol counters |
+| `sockets.json` | TCP/UDP socket tables, parsed connections (IP:port/state/uid/inode), protocol counters |
 | `netfilter.json` | conntrack, iptables/nftables tables, qdisc, XFRM |
 | `ipc_ns_cg.json` | SysV IPC, cgroup v1/v2 hierarchy, POSIX mqueue |
 | `sessions.json` | utmp/wtmp/btmp records, logind sessions/seats |
@@ -44,16 +45,16 @@ The tar.gz archive contains 21 collector output files + manifest.json + summary.
 | `devices.json` | Device enumeration, sysfs driver/model info |
 | `power.json` | CPU frequency, thermal zones, cpuidle, EDAC, throttle |
 | `time.json` | Clocksource, RTC, time sync (NTP) status, cron |
-| `dmesg.json` | dmesg ring buffer, printk parameters, volatile journal files |
+| `dmesg.json` | dmesg ring buffer, printk parameters, journal boots (D-Bus), pstore crash records |
 | `caches.json` | Slab, dentry, inode cache, page cache stats |
 
 All output files are permission-restricted (0600).
 
-## Known Limitations (0.1.0)
+## Known Limitations (0.1.1)
 
 - **XFRM SA/Policy**: `NETLINK_XFRM` protocol family not yet implemented in Rust netlink crates. XFRM stats are collected from `/proc/net/xfrm_stat` only.
 - **nftables full rule dump**: `neli` crate establishes NETLINK_NETFILTER socket connection but nftables message body codec is deferred to 0.2.0. Table names and iptables tables are collected.
-- **systemd volatile journal**: Journal file list is enumerated from `/run/log/journal/` but journal content extraction requires `GetJournal()` D-Bus fd handling (deferred).
+- **Journal content extraction**: Journal file list and boot history are collected via D-Bus `ListBoots()`. Full journal content via `GetJournal()` fd is deferred (zbus 5.x does not expose message unix fds).
 
 ## Documentation
 
@@ -80,5 +81,5 @@ All output files are permission-restricted (0600).
 ```bash
 scripts/setup-dev.sh   # install git hooks
 scripts/verify.sh      # run all checks (build, clippy, tests, docs)
-cargo test --workspace # 21 unit + 4 integration tests
+cargo test --workspace # 30 unit + 6 integration tests
 ```

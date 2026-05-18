@@ -1,6 +1,7 @@
 use serde::Serialize;
 use std::time::Instant;
 
+use crate::collector::util::{read_trimmed, SCHEMA_VERSION};
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::fs::FsRoots;
 use crate::output::OutputDir;
@@ -10,11 +11,14 @@ pub struct Fd;
 
 #[derive(Serialize)]
 struct FdRecord {
+    schema_version: &'static str,
     collection: &'static str,
     file_nr: Option<String>,
     file_max: Option<String>,
     inode_nr: Option<String>,
     inode_max: Option<String>,
+    nr_open: Option<String>,
+    pid_max: Option<String>,
     locks: Option<String>,
 }
 
@@ -23,7 +27,13 @@ const FILES: &[&str] = &[
     "/proc/sys/fs/file-max",
     "/proc/sys/fs/inode-nr",
     "/proc/sys/fs/inode-max",
+    "/proc/sys/fs/nr_open",
+    "/proc/sys/kernel/pid_max",
     "/proc/locks",
+];
+
+const UNSUPPORTED_IF_MISSING: &[&str] = &[
+    "/proc/sys/fs/inode-max",
 ];
 
 impl Fd {
@@ -55,17 +65,16 @@ impl Fd {
         }
         let start = Instant::now();
 
-        fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
-            std::fs::read_to_string(roots.resolve(path)).ok()
-        }
-
         let record = FdRecord {
+            schema_version: SCHEMA_VERSION,
             collection: "RT-07",
-            file_nr: read_raw(&probe.roots, FILES[0]),
-            file_max: read_raw(&probe.roots, FILES[1]),
-            inode_nr: read_raw(&probe.roots, FILES[2]),
-            inode_max: read_raw(&probe.roots, FILES[3]),
-            locks: read_raw(&probe.roots, FILES[4]),
+            file_nr: read_trimmed(&probe.roots, FILES[0]),
+            file_max: read_trimmed(&probe.roots, FILES[1]),
+            inode_nr: read_trimmed(&probe.roots, FILES[2]),
+            inode_max: read_trimmed(&probe.roots, FILES[3]),
+            nr_open: read_trimmed(&probe.roots, FILES[4]),
+            pid_max: read_trimmed(&probe.roots, FILES[5]),
+            locks: read_trimmed(&probe.roots, FILES[6]),
         };
 
         let writer = match output.json_writer("fds.json") {
@@ -109,13 +118,17 @@ impl Fd {
             }
         };
 
+        let (unsupported, degraded): (Vec<_>, Vec<_>) = probe.degraded.iter()
+            .cloned()
+            .partition(|f| UNSUPPORTED_IF_MISSING.contains(&f.as_str()));
+
         CollectionOutcome {
-            status: if probe.degraded.is_empty() {
-                CollectionStatus::Ok
+            status: if !degraded.is_empty() {
+                CollectionStatus::Partial { degrading: degraded }
+            } else if !unsupported.is_empty() {
+                CollectionStatus::Unsupported { reason: unsupported.join(", ") }
             } else {
-                CollectionStatus::Degraded {
-                    missing: probe.degraded.clone(),
-                }
+                CollectionStatus::Ok
             },
             duration: start.elapsed(),
             file_size: size,
@@ -145,11 +158,8 @@ mod tests {
             return;
         }
         let outcome = Fd.collect(&ctx.output, &probe).await;
-        match &outcome.status {
-            crate::collector::CollectionStatus::Failed { reason } => {
-                panic!("collect failed: {reason}");
-            }
-            _ => {}
+        if let crate::collector::CollectionStatus::Failed { reason } = &outcome.status {
+            panic!("collect failed: {reason}");
         }
         assert!(outcome.file_size > 0, "no output produced");
     }

@@ -1,6 +1,6 @@
 [package]
 name = "rebootsnap"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "pre-reboot Linux runtime state collector"
 license = "MIT OR Apache-2.0"
@@ -22,6 +22,7 @@ rtnetlink = { version = "0.21", features = ["tokio_socket"] }
 netlink-packet-route = "0.30"
 neli = { version = "0.7", default-features = false, features = ["async", "netfilter"] }
 futures-util = "0.3"
+libc = "0.2"
 
 [profile.release]
 lto = true

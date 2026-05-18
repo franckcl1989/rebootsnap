@@ -1,6 +1,7 @@
 use serde::Serialize;
 use std::time::Instant;
 
+use crate::collector::util::{read_trimmed, SCHEMA_VERSION};
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::fs::FsRoots;
 use crate::output::OutputDir;
@@ -10,6 +11,7 @@ pub struct Boot;
 
 #[derive(Serialize)]
 struct BootRecord {
+    schema_version: &'static str,
     collection: &'static str,
     boot_id: Option<String>,
     uptime_seconds: Option<f64>,
@@ -57,10 +59,6 @@ impl Boot {
         }
         let start = Instant::now();
 
-        fn read_trimmed(roots: &FsRoots, path: &str) -> Option<String> {
-            std::fs::read_to_string(roots.resolve(path)).ok().map(|s| s.trim().to_string())
-        }
-
         let boot_id = read_trimmed(&probe.roots, FILES[0]);
         let uptime = read_trimmed(&probe.roots, FILES[1])
             .and_then(|s| s.split_whitespace().next()?.parse::<f64>().ok());
@@ -70,6 +68,7 @@ impl Boot {
         let domainname = read_trimmed(&probe.roots, FILES[5]);
 
         let record = BootRecord {
+            schema_version: SCHEMA_VERSION,
             collection: "RT-01",
             boot_id: boot_id.clone(),
             uptime_seconds: uptime,
@@ -124,8 +123,8 @@ impl Boot {
             status: if probe.degraded.is_empty() {
                 CollectionStatus::Ok
             } else {
-                CollectionStatus::Degraded {
-                    missing: probe.degraded.clone(),
+                CollectionStatus::Partial {
+                    degrading: probe.degraded.clone(),
                 }
             },
             duration: start.elapsed(),
@@ -156,11 +155,8 @@ mod tests {
             return;
         }
         let outcome = Boot.collect(&ctx.output, &probe).await;
-        match &outcome.status {
-            crate::collector::CollectionStatus::Failed { reason } => {
-                panic!("collect failed: {reason}");
-            }
-            _ => {}
+        if let crate::collector::CollectionStatus::Failed { reason } = &outcome.status {
+            panic!("collect failed: {reason}");
         }
         assert!(outcome.file_size > 0, "no output produced");
     }

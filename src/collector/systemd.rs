@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::time::Instant;
 use zbus::zvariant::OwnedObjectPath;
 
+use crate::collector::util::SCHEMA_VERSION;
 use crate::collector::{CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::fs::FsRoots;
 use crate::output::OutputDir;
@@ -11,6 +12,7 @@ pub struct Systemd;
 
 #[derive(Serialize)]
 struct SystemdRecord {
+    schema_version: &'static str,
     collection: &'static str,
     manager_version: Option<String>,
     architecture: Option<String>,
@@ -174,6 +176,7 @@ impl Systemd {
         };
 
         let mut degraded = probe.degraded.clone();
+        let mut unsupported: Vec<String> = Vec::new();
 
         let manager_version = get_manager_property_string(&conn, "Version").await;
         let architecture = get_manager_property_string(&conn, "Architecture").await;
@@ -192,7 +195,7 @@ impl Systemd {
 
         let (inhibitors, inh_err) = list_inhibitors(&conn).await;
         if let Some(e) = inh_err {
-            degraded.push(format!("ListInhibitors: {}", e));
+            unsupported.push(format!("ListInhibitors: {}", e));
         }
 
         let failed_detail = tokio::time::timeout(
@@ -205,6 +208,10 @@ impl Systemd {
 
         let all_empty = units.is_empty() && jobs.is_empty() && inhibitors.is_empty();
         if all_empty && !degraded.is_empty() {
+            let mut reason = degraded.join("; ");
+            if !unsupported.is_empty() {
+                reason.push_str(&format!("; unsupported: {}", unsupported.join("; ")));
+            }
             return CollectionOutcome {
                 status: CollectionStatus::Failed {
                     reason: degraded.join("; "),
@@ -223,6 +230,7 @@ impl Systemd {
         }
 
         let record = SystemdRecord {
+            schema_version: SCHEMA_VERSION,
             collection: "RT-03",
             manager_version,
             architecture,
@@ -284,10 +292,12 @@ impl Systemd {
         };
 
         CollectionOutcome {
-            status: if degraded.is_empty() {
-                CollectionStatus::Ok
+            status: if !degraded.is_empty() {
+                CollectionStatus::Partial { degrading: degraded }
+            } else if !unsupported.is_empty() {
+                CollectionStatus::Unsupported { reason: unsupported.join("; ") }
             } else {
-                CollectionStatus::Degraded { missing: degraded }
+                CollectionStatus::Ok
             },
             duration: start.elapsed(),
             file_size: size,
@@ -508,11 +518,8 @@ mod tests {
             return;
         }
         let outcome = Systemd.collect(&ctx.output, &probe).await;
-        match &outcome.status {
-            crate::collector::CollectionStatus::Failed { reason } => {
-                panic!("collect failed: {reason}");
-            }
-            _ => {}
+        if let crate::collector::CollectionStatus::Failed { reason } = &outcome.status {
+            panic!("collect failed: {reason}");
         }
         assert!(outcome.file_size > 0, "no output produced");
     }

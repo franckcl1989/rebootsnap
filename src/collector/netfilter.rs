@@ -2,6 +2,7 @@ use futures_util::StreamExt;
 use serde::Serialize;
 use std::time::{Duration, Instant};
 
+use crate::collector::util::{read_trimmed, SCHEMA_VERSION};
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::fs::FsRoots;
 use crate::output::OutputDir;
@@ -11,6 +12,7 @@ pub struct Netfilter;
 
 #[derive(Serialize)]
 struct NetfilterRecord {
+    schema_version: &'static str,
     collection: &'static str,
     conntrack: Option<String>,
     conntrack_stats: Option<String>,
@@ -30,13 +32,29 @@ struct NetfilterRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     ebtables_names: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    nftables_rules: Option<String>,
+    nftables_probe: Option<NftablesProbe>,
     #[serde(skip_serializing_if = "Option::is_none")]
     xfrm_state: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     xfrm_policy: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    qdisc_info: Option<String>,
+    qdisc_info: Option<Vec<QdiscEntry>>,
+}
+
+#[derive(Serialize)]
+struct NftablesProbe {
+    source: String,
+    nl_family: String,
+    status: String,
+    note: String,
+}
+
+#[derive(Serialize)]
+struct QdiscEntry {
+    index: i32,
+    handle: String,
+    parent: String,
+    info: u32,
 }
 
 const FILES: &[&str] = &[
@@ -52,37 +70,37 @@ const FILES: &[&str] = &[
     "/proc/net/ip_tables_targets",
 ];
 
-async fn query_nftables_rules() -> Option<String> {
+async fn query_nftables_probe() -> Option<NftablesProbe> {
     use neli::consts::socket::NlFamily;
     use neli::socket::asynchronous::NlSocketHandle;
     use neli::utils::Groups;
 
     let _sock = NlSocketHandle::connect(NlFamily::Netfilter, None, Groups::empty()).ok()?;
-    let result = serde_json::json!({
-        "source": "netlink",
-        "nl_family": "NETLINK_NETFILTER",
-        "note": "nftables netlink query connected; full rule dump pending neli 0.7 nftnl integration"
-    });
-    serde_json::to_string(&result).ok()
+    Some(NftablesProbe {
+        source: "netlink".into(),
+        nl_family: "NETLINK_NETFILTER".into(),
+        status: "not_implemented".into(),
+        note: "nftables netlink query connected; full rule dump pending neli 0.7 nftnl integration".into(),
+    })
 }
 
 async fn query_xfrm() -> Option<String> {
     None
 }
 
-async fn query_qdisc() -> Option<String> {
+async fn query_qdisc() -> Option<Vec<QdiscEntry>> {
     let (conn, handle, _) = rtnetlink::new_connection().ok()?;
     tokio::spawn(conn);
 
     let mut entries = Vec::new();
     let mut stream = handle.qdisc().get().execute();
     while let Some(Ok(msg)) = stream.next().await {
-        entries.push(serde_json::json!({
-            "index": msg.header.index,
-            "handle": format!("{}", msg.header.handle),
-            "parent": format!("{}", msg.header.parent),
-            "info": msg.header.info,
-        }));
+        entries.push(QdiscEntry {
+            index: msg.header.index,
+            handle: format!("{}", msg.header.handle),
+            parent: format!("{}", msg.header.parent),
+            info: msg.header.info,
+        });
         if entries.len() >= 100 {
             break;
         }
@@ -91,7 +109,7 @@ async fn query_qdisc() -> Option<String> {
     if entries.is_empty() {
         None
     } else {
-        serde_json::to_string(&entries).ok()
+        Some(entries)
     }
 }
 
@@ -124,13 +142,9 @@ impl Netfilter {
         }
         let start = Instant::now();
 
-        fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
-            std::fs::read_to_string(roots.resolve(path)).ok()
-        }
-
-        let nftables_rules = tokio::time::timeout(
+        let nftables_probe = tokio::time::timeout(
             Duration::from_secs(3),
-            query_nftables_rules(),
+            query_nftables_probe(),
         )
         .await
         .ok()
@@ -161,19 +175,20 @@ impl Netfilter {
         .flatten();
 
         let record = NetfilterRecord {
+            schema_version: SCHEMA_VERSION,
             collection: "RT-13",
-            conntrack: read_raw(&probe.roots, FILES[0]),
-            conntrack_stats: read_raw(&probe.roots, FILES[1]),
-            nf_conntrack_max: read_raw(&probe.roots, FILES[2]),
-            nf_tables_names: read_raw(&probe.roots, FILES[3]),
-            xfrm_stat: read_raw(&probe.roots, FILES[4]),
-            ip_tables_names: read_raw(&probe.roots, FILES[5]),
-            ip6_tables_names: read_raw(&probe.roots, FILES[6]),
-            arp_tables_names: read_raw(&probe.roots, FILES[7]),
-            ip_tables_matches: read_raw(&probe.roots, FILES[8]),
-            ip_tables_targets: read_raw(&probe.roots, FILES[9]),
-            ebtables_names: read_raw(&probe.roots, "/proc/net/ebtables_names"),
-            nftables_rules,
+            conntrack: read_trimmed(&probe.roots, FILES[0]),
+            conntrack_stats: read_trimmed(&probe.roots, FILES[1]),
+            nf_conntrack_max: read_trimmed(&probe.roots, FILES[2]),
+            nf_tables_names: read_trimmed(&probe.roots, FILES[3]),
+            xfrm_stat: read_trimmed(&probe.roots, FILES[4]),
+            ip_tables_names: read_trimmed(&probe.roots, FILES[5]),
+            ip6_tables_names: read_trimmed(&probe.roots, FILES[6]),
+            arp_tables_names: read_trimmed(&probe.roots, FILES[7]),
+            ip_tables_matches: read_trimmed(&probe.roots, FILES[8]),
+            ip_tables_targets: read_trimmed(&probe.roots, FILES[9]),
+            ebtables_names: read_trimmed(&probe.roots, "/proc/net/ebtables_names"),
+            nftables_probe,
             xfrm_state,
             xfrm_policy,
             qdisc_info,
@@ -224,8 +239,8 @@ impl Netfilter {
             status: if probe.degraded.is_empty() {
                 CollectionStatus::Ok
             } else {
-                CollectionStatus::Degraded {
-                    missing: probe.degraded.clone(),
+                CollectionStatus::Partial {
+                    degrading: probe.degraded.clone(),
                 }
             },
             duration: start.elapsed(),
@@ -256,11 +271,8 @@ mod tests {
             return;
         }
         let outcome = Netfilter.collect(&ctx.output, &probe).await;
-        match &outcome.status {
-            crate::collector::CollectionStatus::Failed { reason } => {
-                panic!("collect failed: {reason}");
-            }
-            _ => {}
+        if let crate::collector::CollectionStatus::Failed { reason } = &outcome.status {
+            panic!("collect failed: {reason}");
         }
         assert!(outcome.file_size > 0, "no output produced");
     }

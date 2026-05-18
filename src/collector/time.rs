@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::time::{Duration, Instant};
 use zbus::Connection;
 
+use crate::collector::util::{read_trimmed, SCHEMA_VERSION};
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::fs::FsRoots;
 use crate::output::OutputDir;
@@ -10,7 +11,16 @@ use crate::output::OutputDir;
 pub struct Time;
 
 #[derive(Serialize)]
+struct TimeSyncInfo {
+    ntp_enabled: bool,
+    ntp_synchronized: bool,
+    timezone: String,
+    can_ntp: bool,
+}
+
+#[derive(Serialize)]
 struct TimeRecord {
+    schema_version: &'static str,
     collection: &'static str,
     timer_list: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -22,10 +32,10 @@ struct TimeRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     available_clocksource: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    time_sync: Option<String>,
+    time_sync: Option<TimeSyncInfo>,
 }
 
-async fn query_timedated() -> Option<String> {
+async fn query_timedated() -> Option<TimeSyncInfo> {
     let connection = Connection::system().await.ok()?;
 
     let timedated = zbus::Proxy::new(
@@ -42,22 +52,16 @@ async fn query_timedated() -> Option<String> {
     let tz: String = timedated.get_property("Timezone").await.ok().unwrap_or_default();
     let can_ntp: bool = timedated.get_property("CanNTP").await.ok().unwrap_or(false);
 
-    let result = serde_json::json!({
-        "ntp_enabled": ntp,
-        "ntp_synchronized": sync,
-        "timezone": tz,
-        "can_ntp": can_ntp,
-    });
-
-    Some(serde_json::to_string(&result).unwrap_or_default())
+    Some(TimeSyncInfo {
+        ntp_enabled: ntp,
+        ntp_synchronized: sync,
+        timezone: tz,
+        can_ntp,
+    })
 }
 
 const FILES: &[&str] = &[
     "/proc/timer_list",
-    "/proc/driver/rtc",
-    "/etc/localtime",
-    "/etc/adjtime",
-    "/etc/crontab",
     "/sys/class/rtc/rtc0/date",
     "/sys/class/rtc/rtc0/time",
     "/sys/devices/system/clocksource/clocksource0/current_clocksource",
@@ -93,19 +97,16 @@ impl Time {
         }
         let start = Instant::now();
 
-        fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
-            std::fs::read_to_string(roots.resolve(path)).ok()
-        }
-
-        let time_sync: Option<String> = tokio::time::timeout(Duration::from_secs(3), query_timedated()).await.unwrap_or_default();
+        let time_sync: Option<TimeSyncInfo> = tokio::time::timeout(Duration::from_secs(3), query_timedated()).await.unwrap_or_default();
 
         let record = TimeRecord {
+            schema_version: SCHEMA_VERSION,
             collection: "RT-19",
-            timer_list: read_raw(&probe.roots, FILES[0]),
-            rtc_date: read_raw(&probe.roots, FILES[5]),
-            rtc_time: read_raw(&probe.roots, FILES[6]),
-            current_clocksource: read_raw(&probe.roots, FILES[7]),
-            available_clocksource: read_raw(&probe.roots, FILES[8]),
+            timer_list: read_trimmed(&probe.roots, FILES[0]),
+            rtc_date: read_trimmed(&probe.roots, FILES[1]),
+            rtc_time: read_trimmed(&probe.roots, FILES[2]),
+            current_clocksource: read_trimmed(&probe.roots, FILES[3]),
+            available_clocksource: read_trimmed(&probe.roots, FILES[4]),
             time_sync,
         };
 
@@ -154,8 +155,8 @@ impl Time {
             status: if probe.degraded.is_empty() {
                 CollectionStatus::Ok
             } else {
-                CollectionStatus::Degraded {
-                    missing: probe.degraded.clone(),
+                CollectionStatus::Partial {
+                    degrading: probe.degraded.clone(),
                 }
             },
             duration: start.elapsed(),
@@ -186,11 +187,8 @@ mod tests {
             return;
         }
         let outcome = Time.collect(&ctx.output, &probe).await;
-        match &outcome.status {
-            crate::collector::CollectionStatus::Failed { reason } => {
-                panic!("collect failed: {reason}");
-            }
-            _ => {}
+        if let crate::collector::CollectionStatus::Failed { reason } = &outcome.status {
+            panic!("collect failed: {reason}");
         }
         assert!(outcome.file_size > 0, "no output produced");
     }

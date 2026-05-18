@@ -7,6 +7,7 @@ pub mod cpu;
 pub mod device;
 pub mod events;
 pub mod fd;
+pub mod filesystem;
 pub mod ipc_ns_cg;
 pub mod kernel;
 pub mod memory;
@@ -21,6 +22,7 @@ pub mod socket;
 pub mod systemd;
 pub mod time;
 pub mod tmpfs;
+pub mod util;
 
 use crate::fs::FsRoots;
 use crate::output::OutputDir;
@@ -84,7 +86,9 @@ pub struct CollectionOutcome {
 pub enum CollectionStatus {
     Ok,
     Truncated { reason: String },
-    Degraded { missing: Vec<String> },
+    Partial { degrading: Vec<String> },
+    Unsupported { reason: String },
+    PermissionDenied,
     Failed { reason: String },
     TimedOut,
 }
@@ -98,6 +102,7 @@ pub enum CollectionTask {
     Device(device::Device),
     Events(events::Events),
     Fd(fd::Fd),
+    Filesystem(filesystem::Filesystem),
     IpcNsCg(ipc_ns_cg::IpcNsCg),
     Kernel(kernel::Kernel),
     Memory(memory::Memory),
@@ -124,6 +129,7 @@ impl CollectionTask {
             CollectionTask::Device(_) => "RT-17",
             CollectionTask::Events(_) => "RT-20",
             CollectionTask::Fd(_) => "RT-07",
+            CollectionTask::Filesystem(_) => "RT-22",
             CollectionTask::IpcNsCg(_) => "RT-14",
             CollectionTask::Kernel(_) => "RT-02",
             CollectionTask::Memory(_) => "RT-06",
@@ -150,6 +156,7 @@ impl CollectionTask {
             CollectionTask::Device(_) => "devices.json",
             CollectionTask::Events(_) => "dmesg.json",
             CollectionTask::Fd(_) => "fds.json",
+            CollectionTask::Filesystem(_) => "filesystem.json",
             CollectionTask::IpcNsCg(_) => "ipc_ns_cg.json",
             CollectionTask::Kernel(_) => "kernel.json",
             CollectionTask::Memory(_) => "memory.json",
@@ -177,6 +184,7 @@ impl CollectionTask {
             CollectionTask::Netfilter(_) => Duration::from_secs(5),
             CollectionTask::Socket(_) => Duration::from_secs(10),
             CollectionTask::Systemd(_) => Duration::from_secs(5),
+            CollectionTask::Filesystem(_) => Duration::from_secs(10),
             _ => Duration::from_secs(2),
         }
     }
@@ -190,6 +198,7 @@ impl CollectionTask {
             CollectionTask::Device(c) => c.probe(roots).await,
             CollectionTask::Events(c) => c.probe(roots).await,
             CollectionTask::Fd(c) => c.probe(roots).await,
+            CollectionTask::Filesystem(c) => c.probe(roots).await,
             CollectionTask::IpcNsCg(c) => c.probe(roots).await,
             CollectionTask::Kernel(c) => c.probe(roots).await,
             CollectionTask::Memory(c) => c.probe(roots).await,
@@ -216,6 +225,7 @@ impl CollectionTask {
             CollectionTask::Device(c) => c.collect(output, probe).await,
             CollectionTask::Events(c) => c.collect(output, probe).await,
             CollectionTask::Fd(c) => c.collect(output, probe).await,
+            CollectionTask::Filesystem(c) => c.collect(output, probe).await,
             CollectionTask::IpcNsCg(c) => c.collect(output, probe).await,
             CollectionTask::Kernel(c) => c.collect(output, probe).await,
             CollectionTask::Memory(c) => c.collect(output, probe).await,
@@ -234,7 +244,7 @@ impl CollectionTask {
     }
 }
 
-pub fn all_tasks() -> [CollectionTask; 21] {
+pub fn all_tasks() -> [CollectionTask; 22] {
     [
         CollectionTask::Boot(self::boot::Boot),
         CollectionTask::Block(self::block::Block),
@@ -243,6 +253,7 @@ pub fn all_tasks() -> [CollectionTask; 21] {
         CollectionTask::Device(self::device::Device),
         CollectionTask::Events(self::events::Events),
         CollectionTask::Fd(self::fd::Fd),
+        CollectionTask::Filesystem(self::filesystem::Filesystem),
         CollectionTask::IpcNsCg(self::ipc_ns_cg::IpcNsCg),
         CollectionTask::Kernel(self::kernel::Kernel),
         CollectionTask::Memory(self::memory::Memory),

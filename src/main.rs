@@ -36,6 +36,8 @@ struct ManifestItem {
     missing: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unsupported_reason: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -92,13 +94,40 @@ struct Summary {
     procs_blocked: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     degraded_items: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    status_counts: Option<StatusCounts>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tcp_established: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tcp_close_wait: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tcp_syn_sent: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tcp_time_wait: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tcp_listen: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    listening_ports: Option<Vec<u16>>,
+}
+
+#[derive(Serialize)]
+struct StatusCounts {
+    ok: u64,
+    partial: u64,
+    unsupported: u64,
+    permission_denied: u64,
+    failed: u64,
+    timed_out: u64,
+    truncated: u64,
 }
 
 fn outcome_status(status: &CollectionStatus) -> &'static str {
     match status {
         CollectionStatus::Ok => "ok",
         CollectionStatus::Truncated { .. } => "truncated",
-        CollectionStatus::Degraded { .. } => "degraded",
+        CollectionStatus::Partial { .. } => "partial",
+        CollectionStatus::Unsupported { .. } => "unsupported",
+        CollectionStatus::PermissionDenied => "permission_denied",
         CollectionStatus::Failed { .. } => "failed",
         CollectionStatus::TimedOut => "timed_out",
     }
@@ -161,6 +190,43 @@ fn detect_capabilities() -> Vec<String> {
         }
     }
     Vec::new()
+}
+
+fn socket_stats() -> (u64, u64, u64, u64, u64, Vec<u16>) {
+    let mut established = 0u64;
+    let mut close_wait = 0u64;
+    let mut time_wait = 0u64;
+    let mut listen = 0u64;
+    let mut syn_sent = 0u64;
+    let mut ports = std::collections::BTreeSet::new();
+
+    for path in &["/proc/net/tcp", "/proc/net/tcp6"] {
+        let content = std_fs::read_to_string(path).unwrap_or_default();
+        for line in content.lines().skip(1) {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() < 4 {
+                continue;
+            }
+            match parts[3] {
+                "01" => established += 1,
+                "02" => syn_sent += 1,
+                "06" => time_wait += 1,
+                "08" => close_wait += 1,
+                "0A" => {
+                    listen += 1;
+                    if ports.len() < 500
+                        && let Some(local) = parts[1].split(':').nth(1)
+                        && let Ok(port) = u16::from_str_radix(local, 16) {
+                            ports.insert(port);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let listening_ports: Vec<u16> = ports.into_iter().collect();
+    (established, close_wait, time_wait, listen, syn_sent, listening_ports)
 }
 
 fn create_tar_gz(
@@ -307,11 +373,15 @@ async fn main() {
                     _ => None,
                 },
                 missing: match &outcome.status {
-                    CollectionStatus::Degraded { missing } => Some(missing.clone()),
+                    CollectionStatus::Partial { degrading } => Some(degrading.clone()),
                     _ => None,
                 },
                 error_reason: match &outcome.status {
                     CollectionStatus::Failed { reason } => Some(reason.clone()),
+                    _ => None,
+                },
+                unsupported_reason: match &outcome.status {
+                    CollectionStatus::Unsupported { reason } => Some(reason.clone()),
                     _ => None,
                 },
             },
@@ -326,10 +396,12 @@ async fn main() {
                 truncation: None,
                 missing: None,
                 error_reason: None,
+                unsupported_reason: None,
             },
         };
         manifest_items.push(item);
     }
+    manifest_items.sort_by(|a, b| a.id.cmp(&b.id));
 
     let global_duration = global_start.elapsed();
 
@@ -342,7 +414,26 @@ async fn main() {
     let boot_id = boot_outcome.and_then(|o| o.boot_id.clone()).unwrap_or_default();
     let uptime = boot_outcome.and_then(|o| o.uptime_seconds).unwrap_or(0);
 
-    let degraded_items = manifest_items.iter().filter(|i| i.status == "degraded").count() as u64;
+    let degraded_items = manifest_items.iter().filter(|i| i.status == "partial").count() as u64;
+
+    let mut status_counts = StatusCounts {
+        ok: 0, partial: 0, unsupported: 0, permission_denied: 0,
+        failed: 0, timed_out: 0, truncated: 0,
+    };
+    for item in &manifest_items {
+        match item.status.as_str() {
+            "ok" => status_counts.ok += 1,
+            "partial" => status_counts.partial += 1,
+            "unsupported" => status_counts.unsupported += 1,
+            "permission_denied" => status_counts.permission_denied += 1,
+            "failed" => status_counts.failed += 1,
+            "timed_out" => status_counts.timed_out += 1,
+            "truncated" => status_counts.truncated += 1,
+            _ => {}
+        }
+    }
+
+    let (tcp_est, tcp_cw, tcp_tw, tcp_listen, tcp_syn, listening_ports) = socket_stats();
 
     let summary = Summary {
         collection: "summary".into(),
@@ -362,6 +453,13 @@ async fn main() {
         procs_running: stat_field("procs_running"),
         procs_blocked: stat_field("procs_blocked"),
         degraded_items: Some(degraded_items),
+        status_counts: Some(status_counts),
+        tcp_established: Some(tcp_est),
+        tcp_close_wait: Some(tcp_cw),
+        tcp_syn_sent: Some(tcp_syn),
+        tcp_time_wait: Some(tcp_tw),
+        tcp_listen: Some(tcp_listen),
+        listening_ports: Some(listening_ports),
     };
 
     let summary_bytes = serde_json::to_vec_pretty(&summary).unwrap_or_default();

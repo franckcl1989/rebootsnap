@@ -1,6 +1,7 @@
 use serde::Serialize;
 use std::time::Instant;
 
+use crate::collector::util::{read_trimmed, SCHEMA_VERSION};
 use crate::collector::{CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::fs::FsRoots;
 use crate::output::OutputDir;
@@ -10,6 +11,7 @@ pub struct Tmpfs;
 
 #[derive(Serialize)]
 struct TmpfsRecord {
+    schema_version: &'static str,
     collection: &'static str,
     mounts: Option<String>,
     run_entries: Option<u64>,
@@ -85,9 +87,6 @@ impl Tmpfs {
         }
         let start = Instant::now();
 
-        fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
-            std::fs::read_to_string(roots.resolve(path)).ok()
-        }
         fn count_dir(roots: &FsRoots, path: &str) -> Option<u64> {
             let entries = std::fs::read_dir(roots.resolve(path)).ok()?;
             Some(entries.flatten().count() as u64)
@@ -106,8 +105,9 @@ impl Tmpfs {
         };
 
         let record = TmpfsRecord {
+            schema_version: SCHEMA_VERSION,
             collection: "RT-08",
-            mounts: read_raw(&probe.roots, MOUNTS_FILE),
+            mounts: read_trimmed(&probe.roots, MOUNTS_FILE),
             run_entries: run_entries_val,
             dev_shm_entries: dev_shm_entries_val,
             tmp_entries: tmp_entries_val,
@@ -159,8 +159,8 @@ impl Tmpfs {
             status: if probe.degraded.is_empty() {
                 CollectionStatus::Ok
             } else {
-                CollectionStatus::Degraded {
-                    missing: probe.degraded.clone(),
+                CollectionStatus::Partial {
+                    degrading: probe.degraded.clone(),
                 }
             },
             duration: start.elapsed(),
@@ -191,11 +191,8 @@ mod tests {
             return;
         }
         let outcome = Tmpfs.collect(&ctx.output, &probe).await;
-        match &outcome.status {
-            crate::collector::CollectionStatus::Failed { reason } => {
-                panic!("collect failed: {reason}");
-            }
-            _ => {}
+        if let crate::collector::CollectionStatus::Failed { reason } = &outcome.status {
+            panic!("collect failed: {reason}");
         }
         assert!(outcome.file_size > 0, "no output produced");
     }

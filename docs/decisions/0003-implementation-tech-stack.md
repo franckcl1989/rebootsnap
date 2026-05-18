@@ -70,6 +70,8 @@
 | 临时文件 | `tempfile` 3.x | 原子临时文件创建 + `persist()` 重命名，消除 TOCTOU race 和 panic 安全问题。 |
 | netlink 路由/地址/tunnel/qdisc | `rtnetlink` 0.21 (feature: tokio_socket) + `netlink-packet-route` 0.30 | 纯 Rust async netlink，覆盖 RT-11 IP 地址/tunnel、RT-13 qdisc/XFRM SA/policy。 |
 | nftables netlink 规则 | `neli` 0.7 (features: async, netfilter) | 纯 Rust netlink，NFNL_SUBSYS_NFTABLES，覆盖 RT-13 nftables 规则内容。 |
+| 异步流操作 | `futures-util` 0.3 | `StreamExt` trait 扩展，用于 netlink 流式响应消费。 |
+| syscall 直调 | `libc` 0.2 | `statvfs()` syscall 直调，用于 RT-22 磁盘容量采集，避免引入额外文件系统 crate。 |
 
 ### 暂缓依赖（当前未使用，Cargo.toml 中未声明）
 

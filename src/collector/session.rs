@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::time::{Duration, Instant};
 use zbus::zvariant::OwnedObjectPath;
 
+use crate::collector::util::SCHEMA_VERSION;
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::fs::FsRoots;
 use crate::output::OutputDir;
@@ -23,7 +24,28 @@ struct UtmpEntry {
 }
 
 #[derive(Serialize)]
+struct LogindSession {
+    id: String,
+    uid: u32,
+    user: String,
+    seat: String,
+    session_type: String,
+    state: String,
+    tty: String,
+    remote: bool,
+    display: String,
+}
+
+#[derive(Serialize)]
+struct LogindSeat {
+    id: String,
+    active_session: String,
+    can_graphical: bool,
+}
+
+#[derive(Serialize)]
 struct SessionRecord {
+    schema_version: &'static str,
     collection: &'static str,
     utmp_size: Option<u64>,
     wtmp_size: Option<u64>,
@@ -35,9 +57,9 @@ struct SessionRecord {
     #[serde(skip_serializing_if = "Option::is_none")]
     btmp_entries: Option<Vec<UtmpEntry>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    logind_sessions: Option<String>,
+    logind_sessions: Option<Vec<LogindSession>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    logind_seats: Option<String>,
+    logind_seats: Option<Vec<LogindSeat>>,
 }
 
 const FILES: &[&str] = &["/var/run/utmp", "/var/log/wtmp", "/var/log/btmp"];
@@ -135,7 +157,7 @@ async fn get_logind_property_bool(
     }
 }
 
-async fn query_logind_sessions(_roots: &FsRoots) -> Option<String> {
+async fn query_logind_sessions(_roots: &FsRoots) -> Option<Vec<LogindSession>> {
     let connection = zbus::Connection::system().await.ok()?;
 
     let reply = connection
@@ -171,17 +193,17 @@ async fn query_logind_sessions(_roots: &FsRoots) -> Option<String> {
             .await
             .unwrap_or_default();
 
-        details.push(serde_json::json!({
-            "id": id,
-            "uid": uid,
-            "user": user,
-            "seat": seat,
-            "type": session_type,
-            "state": state,
-            "tty": tty,
-            "remote": remote,
-            "display": display,
-        }));
+        details.push(LogindSession {
+            id,
+            uid,
+            user,
+            seat,
+            session_type,
+            state,
+            tty,
+            remote,
+            display,
+        });
         if details.len() >= 50 {
             break;
         }
@@ -190,11 +212,11 @@ async fn query_logind_sessions(_roots: &FsRoots) -> Option<String> {
     if details.is_empty() {
         None
     } else {
-        Some(serde_json::to_string(&details).unwrap_or_default())
+        Some(details)
     }
 }
 
-async fn query_logind_seats(_roots: &FsRoots) -> Option<String> {
+async fn query_logind_seats(_roots: &FsRoots) -> Option<Vec<LogindSeat>> {
     let connection = zbus::Connection::system().await.ok()?;
 
     let reply = connection
@@ -221,11 +243,11 @@ async fn query_logind_seats(_roots: &FsRoots) -> Option<String> {
             .await
             .unwrap_or(false);
 
-        details.push(serde_json::json!({
-            "id": id,
-            "active_session": active_session,
-            "can_graphical": can_graphical,
-        }));
+        details.push(LogindSeat {
+            id,
+            active_session,
+            can_graphical,
+        });
         if details.len() >= 20 {
             break;
         }
@@ -234,7 +256,7 @@ async fn query_logind_seats(_roots: &FsRoots) -> Option<String> {
     if details.is_empty() {
         None
     } else {
-        Some(serde_json::to_string(&details).unwrap_or_default())
+        Some(details)
     }
 }
 
@@ -295,6 +317,7 @@ impl Session {
         .and_then(|r| r);
 
         let record = SessionRecord {
+            schema_version: SCHEMA_VERSION,
             collection: "RT-15",
             utmp_size: read_size(&probe.roots, FILES[0]),
             wtmp_size: read_size(&probe.roots, FILES[1]),
@@ -351,8 +374,8 @@ impl Session {
             status: if probe.degraded.is_empty() {
                 CollectionStatus::Ok
             } else {
-                CollectionStatus::Degraded {
-                    missing: probe.degraded.clone(),
+                CollectionStatus::Partial {
+                    degrading: probe.degraded.clone(),
                 }
             },
             duration: start.elapsed(),
@@ -383,11 +406,8 @@ mod tests {
             return;
         }
         let outcome = Session.collect(&ctx.output, &probe).await;
-        match &outcome.status {
-            crate::collector::CollectionStatus::Failed { reason } => {
-                panic!("collect failed: {reason}");
-            }
-            _ => {}
+        if let crate::collector::CollectionStatus::Failed { reason } = &outcome.status {
+            panic!("collect failed: {reason}");
         }
         assert!(outcome.file_size > 0, "no output produced");
     }

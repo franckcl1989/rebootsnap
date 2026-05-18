@@ -37,6 +37,7 @@ rebootsnap-{timestamp}/
   netdev.json         # RT-11
   sockets.json        # RT-12
   netfilter.json      # RT-13
+  filesystem.json     # RT-22（磁盘取证）
   ipc_ns_cg.json      # RT-14
   sessions.json       # RT-15
   security.json       # RT-16
@@ -100,10 +101,10 @@ rebootsnap-{timestamp}/
     },
     {
       "id": "RT-13",
-      "status": "degraded",
+      "status": "partial",
       "file": "netfilter.json",
-      "missing": ["nftables_rules"],
-      "reason": "CAP_NET_ADMIN required for nftables netlink"
+      "missing": ["/proc/net/nf_tables_names"],
+      "error_reason": "CAP_NET_ADMIN required for nftables netlink"
     }
   ],
   "global_duration_ms": 45200,
@@ -113,7 +114,7 @@ rebootsnap-{timestamp}/
 
 字段约定：
 
-- `status` 枚举：`ok`（完整采集）、`truncated`（因上限截断）、`degraded`（部分子项不可用）、`failed`（完全失败）、`timed_out`（超时）。
+- `status` 枚举：`ok`（完整采集）、`truncated`（因上限截断）、`partial`（部分子项不可用）、`unsupported`（内核不支持）、`permission_denied`（权限不足）、`failed`（完全失败）、`timed_out`（超时）。
 - `items` 按 RT 编号升序排列，便于工具遍历。
 - 若一个 item 产生多个文件，用 `files`（复数，字符串数组）替代 `file` 字段（当前 0.1.0 无此场景，预留扩展）。
 - 若全局超时退出，`exit_reason` 为 `global_timeout`，`items` 末尾记录未完成的大类。

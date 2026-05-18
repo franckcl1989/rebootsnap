@@ -2,6 +2,7 @@ use serde::Serialize;
 use std::path::Path;
 use std::time::Instant;
 
+use crate::collector::util::{read_trimmed, SCHEMA_VERSION};
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::fs::FsRoots;
 use crate::output::OutputDir;
@@ -11,12 +12,12 @@ pub struct Device;
 
 #[derive(Serialize)]
 struct DeviceRecord {
+    schema_version: &'static str,
     collection: &'static str,
     devices: Option<String>,
     misc: Option<String>,
     kernel_debug: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sysfs_devices: Option<String>,
+    sysfs_devices: Vec<SysfsDevice>,
     #[serde(skip_serializing_if = "Option::is_none")]
     input_devices: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -42,10 +43,6 @@ const FILES: &[&str] = &[
     "/proc/bus/input/devices",
     "/proc/interrupts",
 ];
-
-fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
-    std::fs::read_to_string(roots.resolve(path)).ok()
-}
 
 fn walk_devices(dir: &Path, depth: u32, max_depth: u32, results: &mut Vec<SysfsDevice>) {
     if depth >= max_depth || results.len() >= 100 {
@@ -78,13 +75,13 @@ fn walk_devices(dir: &Path, depth: u32, max_depth: u32, results: &mut Vec<SysfsD
     }
 }
 
-fn enumerate_sysfs_devices(roots: &FsRoots) -> Option<String> {
+fn enumerate_sysfs_devices(roots: &FsRoots) -> Vec<SysfsDevice> {
     let devices_dir = roots.resolve("/sys/devices");
     let mut results: Vec<SysfsDevice> = Vec::new();
 
     let entries = match std::fs::read_dir(&devices_dir) {
         Ok(e) => e,
-        Err(_) => return None,
+        Err(_) => return Vec::new(),
     };
 
     for entry in entries.flatten() {
@@ -97,11 +94,7 @@ fn enumerate_sysfs_devices(roots: &FsRoots) -> Option<String> {
         }
     }
 
-    if results.is_empty() {
-        return None;
-    }
-
-    serde_json::to_string(&results).ok()
+    results
 }
 
 impl Device {
@@ -134,9 +127,10 @@ impl Device {
         let start = Instant::now();
 
         let record = DeviceRecord {
+            schema_version: SCHEMA_VERSION,
             collection: "RT-17",
-            devices: read_raw(&probe.roots, FILES[0]),
-            misc: read_raw(&probe.roots, FILES[1]),
+            devices: read_trimmed(&probe.roots, FILES[0]),
+            misc: read_trimmed(&probe.roots, FILES[1]),
             kernel_debug: if std::fs::read_dir(probe.roots.resolve(FILES[2]))
                 .ok()
                 .is_some_and(|mut d| d.next().is_some())
@@ -146,8 +140,8 @@ impl Device {
                 None
             },
             sysfs_devices: enumerate_sysfs_devices(&probe.roots),
-            input_devices: read_raw(&probe.roots, FILES[3]),
-            interrupts: read_raw(&probe.roots, FILES[4]),
+            input_devices: read_trimmed(&probe.roots, FILES[3]),
+            interrupts: read_trimmed(&probe.roots, FILES[4]),
         };
 
         let writer = match output.json_writer("devices.json") {
@@ -195,8 +189,8 @@ impl Device {
             status: if probe.degraded.is_empty() {
                 CollectionStatus::Ok
             } else {
-                CollectionStatus::Degraded {
-                    missing: probe.degraded.clone(),
+                CollectionStatus::Partial {
+                    degrading: probe.degraded.clone(),
                 }
             },
             duration: start.elapsed(),
@@ -227,11 +221,8 @@ mod tests {
             return;
         }
         let outcome = Device.collect(&ctx.output, &probe).await;
-        match &outcome.status {
-            crate::collector::CollectionStatus::Failed { reason } => {
-                panic!("collect failed: {reason}");
-            }
-            _ => {}
+        if let crate::collector::CollectionStatus::Failed { reason } = &outcome.status {
+            panic!("collect failed: {reason}");
         }
         assert!(outcome.file_size > 0, "no output produced");
     }

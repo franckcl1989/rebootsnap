@@ -1,6 +1,7 @@
 use serde::Serialize;
 use std::time::Instant;
 
+use crate::collector::util::{read_trimmed, SCHEMA_VERSION};
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::fs::FsRoots;
 use crate::output::OutputDir;
@@ -10,12 +11,12 @@ pub struct Block;
 
 #[derive(Serialize)]
 struct BlockRecord {
+    schema_version: &'static str,
     collection: &'static str,
     diskstats: Option<String>,
     partitions: Option<String>,
     pressure_io: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    block_device_info: Option<String>,
+    block_device_info: Vec<BlockDeviceInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     aio_max_nr: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -31,6 +32,7 @@ struct BlockDeviceInfo {
     rotational: Option<String>,
     max_sectors_kb: Option<String>,
     stat: Option<String>,
+    io_stat: Option<IoStatFields>,
     dm_name: Option<String>,
     dm_uuid: Option<String>,
     dm_suspended: Option<String>,
@@ -39,6 +41,30 @@ struct BlockDeviceInfo {
     zram_comp_algorithm: Option<String>,
     zram_mm_stat: Option<String>,
 }
+#[derive(Serialize)]
+struct IoStatFields {
+    rd_ios: u64,
+    rd_merges: u64,
+    rd_sectors: u64,
+    rd_ticks: u64,
+    wr_ios: u64,
+    wr_merges: u64,
+    wr_sectors: u64,
+    wr_ticks: u64,
+    ios_in_progress: u64,
+    io_ticks: u64,
+    io_aveq: u64,
+}
+
+fn parse_io_stat(stat_str: &str) -> Option<IoStatFields> {
+    let parts: Vec<u64> = stat_str.split_whitespace().filter_map(|s| s.parse().ok()).collect();
+    if parts.len() < 11 { return None; }
+    Some(IoStatFields {
+        rd_ios: parts[0], rd_merges: parts[1], rd_sectors: parts[2], rd_ticks: parts[3],
+        wr_ios: parts[4], wr_merges: parts[5], wr_sectors: parts[6], wr_ticks: parts[7],
+        ios_in_progress: parts[8], io_ticks: parts[9], io_aveq: parts[10],
+    })
+}
 
 const FILES: &[&str] = &[
     "/proc/diskstats",
@@ -46,6 +72,10 @@ const FILES: &[&str] = &[
     "/proc/pressure/io",
     "/proc/sys/fs/aio-max-nr",
     "/proc/sys/fs/aio-nr",
+];
+
+const UNSUPPORTED_IF_MISSING: &[&str] = &[
+    "/proc/pressure/io",
 ];
 
 impl Block {
@@ -77,20 +107,17 @@ impl Block {
         }
         let start = Instant::now();
 
-        fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
-            std::fs::read_to_string(roots.resolve(path)).ok()
-        }
-
         let block_device_info = enumerate_block_devices(&probe.roots);
 
         let record = BlockRecord {
+            schema_version: SCHEMA_VERSION,
             collection: "RT-10",
-            diskstats: read_raw(&probe.roots, FILES[0]),
-            partitions: read_raw(&probe.roots, FILES[1]),
-            pressure_io: read_raw(&probe.roots, FILES[2]),
+            diskstats: read_trimmed(&probe.roots, FILES[0]),
+            partitions: read_trimmed(&probe.roots, FILES[1]),
+            pressure_io: read_trimmed(&probe.roots, FILES[2]),
             block_device_info,
-            aio_max_nr: read_raw(&probe.roots, FILES[3]),
-            aio_nr: read_raw(&probe.roots, FILES[4]),
+            aio_max_nr: read_trimmed(&probe.roots, FILES[3]),
+            aio_nr: read_trimmed(&probe.roots, FILES[4]),
         };
 
         let writer = match output.json_writer("block.json") {
@@ -134,13 +161,17 @@ impl Block {
             }
         };
 
+        let (unsupported, degraded): (Vec<_>, Vec<_>) = probe.degraded.iter()
+            .cloned()
+            .partition(|f| UNSUPPORTED_IF_MISSING.contains(&f.as_str()));
+
         CollectionOutcome {
-            status: if probe.degraded.is_empty() {
-                CollectionStatus::Ok
+            status: if !degraded.is_empty() {
+                CollectionStatus::Partial { degrading: degraded }
+            } else if !unsupported.is_empty() {
+                CollectionStatus::Unsupported { reason: unsupported.join(", ") }
             } else {
-                CollectionStatus::Degraded {
-                    missing: probe.degraded.clone(),
-                }
+                CollectionStatus::Ok
             },
             duration: start.elapsed(),
             file_size: size,
@@ -156,9 +187,9 @@ impl Block {
     }
 }
 
-fn enumerate_block_devices(roots: &FsRoots) -> Option<String> {
+fn enumerate_block_devices(roots: &FsRoots) -> Vec<BlockDeviceInfo> {
     let block_dir = roots.resolve("/sys/block");
-    let dir = std::fs::read_dir(&block_dir).ok()?;
+    let dir = match std::fs::read_dir(&block_dir) { Ok(d) => d, Err(_) => return Vec::new() };
     let mut devices: Vec<BlockDeviceInfo> = Vec::new();
 
     for entry in dir.flatten() {
@@ -178,6 +209,7 @@ fn enumerate_block_devices(roots: &FsRoots) -> Option<String> {
         let rotational = read_attr("queue/rotational");
         let max_sectors_kb = read_attr("queue/max_sectors_kb");
         let stat = read_attr("stat");
+        let io_stat = stat.as_deref().and_then(parse_io_stat);
 
         let dm = name.starts_with("dm-");
         let dm_name = if dm { read_attr("dm/name") } else { None };
@@ -206,6 +238,7 @@ fn enumerate_block_devices(roots: &FsRoots) -> Option<String> {
             rotational,
             max_sectors_kb,
             stat,
+            io_stat,
             dm_name,
             dm_uuid,
             dm_suspended,
@@ -216,11 +249,7 @@ fn enumerate_block_devices(roots: &FsRoots) -> Option<String> {
         });
     }
 
-    if devices.is_empty() {
-        None
-    } else {
-        serde_json::to_string(&devices).ok()
-    }
+    devices
 }
 
 #[cfg(test)]
@@ -237,11 +266,8 @@ mod tests {
             return;
         }
         let outcome = Block.collect(&ctx.output, &probe).await;
-        match &outcome.status {
-            crate::collector::CollectionStatus::Failed { reason } => {
-                panic!("collect failed: {reason}");
-            }
-            _ => {}
+        if let crate::collector::CollectionStatus::Failed { reason } = &outcome.status {
+            panic!("collect failed: {reason}");
         }
         assert!(outcome.file_size > 0, "no output produced");
     }

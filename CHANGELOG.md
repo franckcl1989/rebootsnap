@@ -4,6 +4,158 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-18 - Schema 稳定性、JSON-in-string 清理、manifest 语义修正与 summary 增强
+
+- **类型**：实现 / 修复
+- **范围**：`src/collector/util.rs`（新建）、全部 22 个 collector、`src/collector/mod.rs`、`src/main.rs`、`tests/integration.rs`、`tests/fixtures/setup.sh`、`docs/collector-architecture.md`、`docs/decisions/0003-*`、`docs/decisions/0004-*`、`CHANGELOG.md`、`docs/phase-a-review.md`
+- **提交信息**：`feat(collector): schema stability, manifest semantics, summary enrichment`
+
+### 变更内容
+
+**Schema 稳定性（影响全部 collector）**：
+- 新建 `src/collector/util.rs` 通用工具模块（`read_trimmed()`、`SCHEMA_VERSION` 常量）
+- 所有 22 个 record struct 新增 `schema_version: "0.1"` 字段
+- `read_raw()` → `read_trimmed()`，统一去换行符
+- `Cargo.toml` version `0.1.0` → `0.1.1`
+
+**JSON-in-string 清零（6 个 collector，8 个字段）**：
+- `netdev.rs`：`ip_addresses`/`tunnel_info` → `Vec<IpAddrEntry>`/`Vec<TunnelEntry>`
+- `netfilter.rs`：`qdisc_info` → `Vec<QdiscEntry>`；`nftables_rules` → `nftables_probe`（`NftablesProbe` struct，status: not_implemented）
+- `session.rs`：`logind_sessions`/`logind_seats` → `Vec<LogindSession>`/`Vec<LogindSeat>`
+- `time.rs`：`time_sync` → `TimeSyncInfo` struct；移除 4 个未采集的 FILES 路径
+- `mount.rs`：`fs_debug_types` → `Vec<String>`
+
+**Manifest 状态语义修正（9 个 collector）**：
+- 新增 `UNSUPPORTED_IF_MISSING` 常量，区分"内核不支持"与"采集降级"
+- `cpu.rs`/`memory.rs`/`block.rs`：`/proc/pressure/*` 缺失 → `Unsupported`（非 `Partial`）
+- `mount.rs`：`/sys/fs/ext4/features` 缺失 → `Unsupported`
+- `fd.rs`：`/proc/sys/fs/inode-max` 缺失 → `Unsupported`
+- `kernel.rs`：`hung_task_check_interval_secs` 缺失 → `Unsupported`
+- `security.rs`：audit backlog sysctls 缺失 → `Unsupported`
+- `events.rs`：`printk_dropped`/`devkmsg_log` 缺失 → `Unsupported`；`/dev/kmsg` 不可读 → `PermissionDenied`
+- `systemd.rs`：`ListInhibitors` unknown method → `Unsupported`（非 `Partial`）
+- 真机验证：partial 从 10 项降为 1 项，9 项正确转为 unsupported
+
+**进程归因扩展（process.rs）**：
+- 新增 `start_time`、`wchan`、`cgroup_parsed`、`ns_inodes`、`cap_bits`
+
+**Socket 结构化（socket.rs）**：
+- 新增 `listening_sockets`、`socket_state_counts`、`listening_ports`
+
+**Power 结构化（power.rs）**：
+- `cpu_freq`/`thermal_zones`/`edac_errors`/`cpuidle_states` 从文本 blob 改为结构化数组
+
+**Filesystem 字段修正（filesystem.rs）**：
+- `devtype` → `major_minor`；`fs_uuid` 改为仅读 uevent；`critical_dirs` +docker/kubelet
+
+**Summary 增强（main.rs）**：
+- 新增 `status_counts`（7 种状态计数）
+- 新增 `tcp_established`/`tcp_close_wait`/`tcp_syn_sent`/`tcp_time_wait`/`tcp_listen`/`listening_ports`（从 /proc/net/tcp 直读）
+- manifest items 按 RT 编号升序排列
+
+**Bug 修复**：
+- `fd.rs`：`locks` 字段从 `FILES[4]`（nr_open）修正为 `FILES[6]`（locks）
+
+**文档与测试同步**：
+- `docs/collector-architecture.md`：22 变体、CollectionStatus 7 种、TextWriter 移除、RT-22 映射表、RT-20 格式、ProbeOutcome 补 roots、权限 0600
+- `docs/decisions/0004-output-format.md`：补 filesystem.json、status 枚举纠正
+- `docs/decisions/0003-*.md`：补 futures-util + libc 依赖
+- `CHANGELOG.md`：CollectionStatus 6种→7种
+- `docs/phase-a-review.md`：TextWriter 标注已移除 + 0.1.1 更新
+- `tests/fixtures/setup.sh`：RT-22 fixture，计数 21→22
+- `tests/integration.rs`：denied 场景适配 PermissionDenied 状态
+
+**审查修复（3轮循环 + 远端正验）**：
+- `process.rs`：`decode_caps` 循环 `0..40` → `0..41`（遗漏 CAP_CHECKPOINT_RESTORE）；`cap_names` → `cap_bits`
+- `main.rs`：`socket_stats()` 移除过早 break（避免端口上限阻断状态计数）；新增 `tcp_syn_sent` 跟踪
+- `events.rs`：常量名统一 `UNSUPPORTED_WHEN_MISSING` → `UNSUPPORTED_IF_MISSING`；本地 `read_trimmed` → 复用 util 版本
+- `systemd.rs`：`all_empty` 时将 unsupported 拼入 Failed reason，避免信息丢失
+- `filesystem.rs`：`device/uevent` 合并两次读取为一次
+- `power.rs`/`socket.rs`：补充 `UNSUPPORTED_IF_MISSING`（空数组，与其余 collector 一致）
+- 9 个 collector（`tmpfs`/`mount`/`netdev`/`netfilter`/`ipc_ns_cg`/`security`/`device`/`time`/`cache`）：本地 `read_raw` → `read_trimmed`，统一去换行行为
+- `util.rs`：移除未使用的 `read_number` 和 `FromStr` import
+
+### 设计影响
+
+- `schema_version: "0.1"` 成为所有输出文件的首个字段，下游按版本适配
+- JSON-in-string 清零：无二次编码，所有结构化数据均为原生 JSON 对象/数组
+- `nftables_rules` → `nftables_probe`（破坏性重命名），旧消费者需迁移字段名
+- power.rs 输出格式从文本 blob 变为结构化数组（破坏性变更）
+- `devtype` → `major_minor` 重命名
+- `Unsupported` 和 `PermissionDenied` 状态首次被 collector 实际产出
+- manifest 中 partial 项大幅减少（kernel 配置差异不再误标为采集降级）
+
+### 验证
+
+- `cargo build --release` 零 warning
+- `cargo clippy` 零 warning
+- `cargo test --workspace` 36/36 通过（30 unit + 6 integration）
+- `scripts/verify.sh` exit 0
+- Rocky Linux 8.10 真机测试：24 文件、0600 权限、status_counts 正确、tcp 统计正确
+
+---
+
+## 2026-05-19 - 0.1.1 日志链路、硬件错误检测与结构化提升
+
+- **类型**：实现
+- **范围**：`src/collector/`（全部 22 个，含新建 `filesystem.rs`）、`src/collector/mod.rs`、`src/main.rs`、`Cargo.toml`、`tests/integration.rs`、`CHANGELOG.md`
+- **提交信息**：`feat(collector): v0.1.1 log chain, hardware errors, process and disk`
+
+### 变更内容
+
+**Schema 与状态基础改造（影响所有 collector）**：
+- `CollectionStatus` 从 5 种扩展为 7 种：`Ok` / `Truncated` / `Partial` / `Unsupported` / `PermissionDenied` / `Failed` / `TimedOut`
+- `main.rs` `ManifestItem` 新增 `unsupported_reason` 字段，状态字符串同步迁移
+- `block.rs`：`block_device_info` 去字符串化，直接序列化 `Vec<BlockDeviceInfo>`
+- `device.rs`：`sysfs_devices` 去字符串化，直接序列化 `Vec<SysfsDevice>`
+- `ipc_ns_cg.rs`：`cgroup_tree_v1`/`cgroup_tree_v2`/`posix_mq_queues` 去字符串化
+- `events.rs`：`volatile_journal` 改为 `serde_json::Value`
+
+**日志链路（RT-20）**：
+- `journal_boots`：通过 D-Bus `ListBoots()` 获取系统启动历史
+- `pstore_files`：枚举 `/sys/fs/pstore/` crash 记录（最多 20 条，每条 8KB）
+- `pstore_systemd`：枚举 `/var/lib/systemd/pstore/` systemd pstore 后端
+- journal 内容提取标注为暂缓（zbus 5.x 不暴露 message fds）
+
+**进程归因（RT-04）**：
+- ProcessRecord 新增 16 个字段：`status_vmsize`、`status_vmrss`、`status_vmswap`、`status_vmdata`、`status_threads`、`status_seccomp`、`cap_effective`、`cap_permitted`、`cap_bounding`、`status_nonvoluntary_ctxt_switches`、`io_read_bytes`、`io_write_bytes`、`io_cancelled_write_bytes`、`fd_count`、`stack`、`statm_*`(4)
+- `oom_score`/`oom_score_adj` 类型从 `Option<String>` 修正为 `Option<i64>`
+
+**硬件与内核扩展**：
+- `cpu.rs` (RT-05)：新增 `vulnerabilities` 字段（`/sys/devices/system/cpu/vulnerabilities/*` 枚举）
+- `kernel.rs` (RT-02)：新增 `mce_banks`（MCE Machine Check Exception bank 读取）、`kernel_counters`（`/sys/kernel/oops_count/warn_count/hardlockup_count/softlockup_count`）、`irq_affinity`（`/proc/irq/*/smp_affinity_list` 枚举）
+- `fd.rs` (RT-07)：新增 `nr_open`（`/proc/sys/fs/nr_open`）、`pid_max`（`/proc/sys/kernel/pid_max`）
+- `memory.rs` (RT-06)：新增 `buddyinfo`（`/proc/buddyinfo`）
+
+**磁盘取证（新建 RT-22）**：
+- `filesystem.rs`：按挂载点容量 `statvfs()` 采集 `{ mount, fs_type, device, total/used/avail_bytes, total/used_inodes }`
+- 关键目录 (`/var/log`, `/var/lib/containerd`) 容量快照
+- `/sys/class/block/*/` 块设备清单（name、size、devtype、UUID、label）
+
+**块设备 I/O 统计**：
+- `block.rs` (RT-10)：`BlockDeviceInfo` 新增 `io_stat` 字段（15 字段解析自 `/sys/block/*/stat` → `rd_ios/rd_merges/rd_sectors/...`）
+
+**网络结构化视图**：
+- `socket.rs` (RT-12)：新增 `tcp_connections`/`tcp6_connections`/`udp_connections`/`udp6_connections` 结构化连接数组（解析自 `/proc/net/tcp*`，含 IP/port/state/uid/inode）
+- `netdev.rs` (RT-11)：新增 `routes_v4_parsed`（解析自 `/proc/net/route`）、`arp_parsed`（解析自 `/proc/net/arp`）
+
+### 设计影响
+
+- `CollectionStatus` 新增 `Unsupported` 和 `PermissionDenied` 变体，区分"内核不支持"和"权限不足"
+- `Partial` 替代 `Degraded`（字段从 `missing` 改为 `degrading`），语义不变
+- 新增 `libc` 直接依赖（`statvfs` syscall），用于 RT-22 磁盘容量采集
+- RT-22 (filesystem) 成为第 22 个 collector，`all_tasks()` 返回 22 元素数组
+- 测试从 35 增至 36（30 unit + 6 integration），RT-22 新增 1 个单元测试
+
+### 验证
+
+- `cargo build --release` 零 warning
+- `cargo clippy` 零 warning
+- `cargo test --workspace` 36/36 通过（30 unit + 6 integration）
+- `scripts/verify.sh` exit 0
+
+---
+
 ## 2026-05-18 - 0.1.0 首次正式发布
 
 - **类型**：实现

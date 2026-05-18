@@ -26,6 +26,7 @@ src/
     cpu.rs              # RT-05 CPU、调度与中断
     memory.rs           # RT-06 内存、虚拟内存与 swap
     fd.rs               # RT-07 打开句柄与内核引用
+    filesystem.rs       # RT-22 磁盘取证（挂载点容量、块设备清单）
     tmpfs.rs            # RT-08 临时文件系统
     mount.rs            # RT-09 VFS 与挂载
     block.rs            # RT-10 块设备与存储 I/O
@@ -54,11 +55,12 @@ src/
 ## CollectionTask enum 与返回类型
 
 ```rust
-/// 所有 collector 的编译期注册表（21 变体，RT-01 至 RT-21 全覆盖）。
+/// 所有 collector 的编译期注册表（22 变体，RT-01 至 RT-22 全覆盖）。
 pub enum CollectionTask {
     Block(block::Block), Boot(boot::Boot), Cache(cache::Cache), Cpu(cpu::Cpu),
     Device(device::Device), Events(events::Events), Fd(fd::Fd),
-    IpcNsCg(ipc_ns_cg::IpcNsCg), Kernel(kernel::Kernel), Memory(memory::Memory),
+    Filesystem(filesystem::Filesystem), IpcNsCg(ipc_ns_cg::IpcNsCg),
+    Kernel(kernel::Kernel), Memory(memory::Memory),
     Mount(mount::Mount), Netdev(netdev::Netdev), Netfilter(netfilter::Netfilter),
     Power(power::Power), Process(process::Process), Security(security::Security),
     Session(session::Session), Socket(socket::Socket), Systemd(systemd::Systemd),
@@ -78,6 +80,7 @@ pub struct ProbeOutcome {
     pub available: bool,
     pub degraded: Vec<String>,
     pub reason: Option<String>,
+    pub roots: FsRoots,
 }
 
 /// 一次采集的结果。除 status/duration/file_size 外，还携带 summary 构建所需的提取值，
@@ -100,7 +103,9 @@ pub struct CollectionOutcome {
 pub enum CollectionStatus {
     Ok,
     Truncated { reason: String },
-    Degraded { missing: Vec<String> },
+    Partial { degrading: Vec<String> },
+    Unsupported { reason: String },
+    PermissionDenied,
     Failed { reason: String },
     TimedOut,
 }
@@ -174,13 +179,10 @@ impl OutputDir {
     /// 达到 64 MiB 时写入截断标记行，停止接受后续行。
     pub fn jsonl_writer(&self, filename: &str) -> Result<JsonlWriter>;
 
-    /// 打开一个文本写入器。NamedTempFile 写入，完成后 persist。
-    /// 字节达到上限时截断，保留已写入内容。
-    pub fn text_writer(&self, filename: &str) -> Result<TextWriter>;
 }
 ```
 
-所有 Writer 内部使用 `tempfile::NamedTempFile`：写入期间数据进入输出目录内的临时文件，`Writer` 的 `commit()` 或 `finish()` 时 `persist()` 原子重命名为目标文件名。若超时取消或 panic 导致 Writer drop 而未 commit/finish，`NamedTempFile::Drop` 自动删除临时文件——保证最终文件名不存在半截文件。`cleanup_tmp()` 作为额外保障清理任何遗留文件。
+所有 Writer 内部使用 `tempfile::NamedTempFile`：写入期间数据进入输出目录内的临时文件，`Writer` 的 `commit()` 或 `finish()` 时 `persist()` 原子重命名为目标文件名。若超时取消或 panic 导致 Writer drop 而未 commit/finish，`NamedTempFile::Drop` 自动删除临时文件——保证最终文件名不存在半截文件。`cleanup_tmp()` 作为额外保障清理任何遗留文件。`TextWriter` 已在 v0.1.1 移除，dmesg 改用 JSON 格式输出。
 
 ## RT 大类与接口映射
 
@@ -205,8 +207,9 @@ impl OutputDir {
 | RT-17 | 设备 | `/proc/devices`, `/proc/iomem` | std::fs | JSON |
 | RT-18 | 电源 | `/sys/power/state`, `/sys/power/disk` | std::fs | JSON |
 | RT-19 | 时间 | `/proc/timer_list`, `/sys/class/rtc/rtc0/date`, `/sys/class/rtc/rtc0/time` | std::fs | JSON |
-| RT-20 | 易失事件缓冲 | `/dev/kmsg`（内核环形缓冲区直读），`/proc/sys/kernel/printk`（日志级别） | std::fs | .txt |
+| RT-20 | 易失事件缓冲 | `/dev/kmsg`（内核环形缓冲区直读），`/proc/sys/kernel/printk`（日志级别） | std::fs | JSON |
 | RT-21 | OS 缓存 | `/proc/slabinfo`, `/proc/meminfo` | std::fs | JSON |
+| RT-22 | 磁盘取证 | `/proc/mounts` + `statvfs()`（按挂载点容量、inode 使用量），`/sys/class/block/*/`（块设备清单） | std::fs + `libc` | JSON |
 
 ## 实现阶段与优先级
 
@@ -272,7 +275,7 @@ impl OutputDir {
 | 条目截断上限 | 50000 | 同上 |
 | 递归深度上限 | 3 级 | 同上 |
 | 全局超时 | 300 秒 | 同上 |
-| 输出文件权限 | 0600 或 0640（owner root） | 同上 |
+| 输出文件权限 | 0600（文件），0700（目录） | 同上 |
 | top_consumers 截取数 | 3 | 本文定义 |
 | 输出根目录命名模板 | `rebootsnap-{local:%Y%m%d-%H%M%S}` | 本文定义 |
 | tar 后缀 | `.tar.gz` | 本文定义 |

@@ -1,6 +1,7 @@
 use serde::Serialize;
 use std::time::Instant;
 
+use crate::collector::util::{read_trimmed, SCHEMA_VERSION};
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::fs::FsRoots;
 use crate::output::OutputDir;
@@ -10,6 +11,7 @@ pub struct Cache;
 
 #[derive(Serialize)]
 struct CacheRecord {
+    schema_version: &'static str,
     collection: &'static str,
     slabinfo: Option<String>,
     meminfo: Option<String>,
@@ -46,14 +48,11 @@ impl Cache {
         }
         let start = Instant::now();
 
-        fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
-            std::fs::read_to_string(roots.resolve(path)).ok()
-        }
-
         let record = CacheRecord {
+            schema_version: SCHEMA_VERSION,
             collection: "RT-21",
-            slabinfo: read_raw(&probe.roots, FILES[0]),
-            meminfo: read_raw(&probe.roots, FILES[1]),
+            slabinfo: read_trimmed(&probe.roots, FILES[0]),
+            meminfo: read_trimmed(&probe.roots, FILES[1]),
         };
 
         let writer = match output.json_writer("caches.json") {
@@ -101,8 +100,8 @@ impl Cache {
             status: if probe.degraded.is_empty() {
                 CollectionStatus::Ok
             } else {
-                CollectionStatus::Degraded {
-                    missing: probe.degraded.clone(),
+                CollectionStatus::Partial {
+                    degrading: probe.degraded.clone(),
                 }
             },
             duration: start.elapsed(),
@@ -133,11 +132,8 @@ mod tests {
             return;
         }
         let outcome = Cache.collect(&ctx.output, &probe).await;
-        match &outcome.status {
-            crate::collector::CollectionStatus::Failed { reason } => {
-                panic!("collect failed: {reason}");
-            }
-            _ => {}
+        if let crate::collector::CollectionStatus::Failed { reason } = &outcome.status {
+            panic!("collect failed: {reason}");
         }
         assert!(outcome.file_size > 0, "no output produced");
     }

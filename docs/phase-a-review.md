@@ -386,6 +386,8 @@ Rust 社区惯例：在 tokio 的 multi-threaded runtime 中，`std::time::Insta
 > **Phase B 更新 (2026-05-17)**: RT-03 已在 Phase B 实现（`systemd.rs`），`ProbeSummary` 已重构移除。RT-11/RT-12/RT-13 仍待 Phase C。
 >
 > **Phase C+D 更新 (2026-05-17)**: RT-02、RT-07 至 RT-21 全部 17 个剩余 collector 已实现。RT-01 至 RT-21 全部 21 个大类已完成。Phase E（测试）为下一阶段。
+>
+> **0.1.1 更新 (2026-05-18)**: RT-22 (filesystem) 作为第 22 个 collector 新增，`CollectionTask` 变体从 21 增至 22。`TextWriter` 已移除（RT-20 改用 JSON）。
 
 ### 6.3 `TextWriter` 全结构未使用
 
@@ -394,6 +396,8 @@ Rust 社区惯例：在 tokio 的 multi-threaded runtime 中，`std::time::Insta
 `TextWriter` 定义完整但无 collector 使用（RT-20 dmesg 是 Phase D 的工作）。
 
 **修复**：保留，加 `#[allow(dead_code)]`。
+>
+> **0.1.1 更新 (2026-05-18)**：`TextWriter` struct/impl 和 `text_writer()` 方法已在 v0.1.1 移除（72 行死代码）。RT-20 dmesg 改用 JSON 格式输出（`json_writer` + `EventsRecord` struct）。
 
 ---
 
