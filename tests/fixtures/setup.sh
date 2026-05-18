@@ -12,6 +12,8 @@ echo "abc-def-123"             > "$base/proc/sys/kernel/random/boot_id"
 echo "12345.67 89012.34"       > "$base/proc/uptime"
 echo "0.10 0.20 0.30 1/100 1234" > "$base/proc/loadavg"
 echo "(none)"                   > "$base/proc/sys/kernel/domainname"
+echo "Linux version 5.15.0-mock" > "$base/proc/version"
+echo "BOOT_IMAGE=/vmlinuz-mock root=/dev/sda1" > "$base/proc/cmdline"
 
 # ===== kernel.rs (RT-02) =====
 echo "Linux"                   > "$base/proc/sys/kernel/ostype"
@@ -131,6 +133,10 @@ echo "10" > "$base/proc/sys/vm/dirty_background_ratio"
 echo "100" > "$base/proc/sys/vm/vfs_cache_pressure"
 echo "0" > "$base/proc/sys/vm/zone_reclaim_mode"
 
+# zoneinfo
+echo "Node 0, zone   Normal" > "$base/proc/zoneinfo"
+echo "  pages free     5000" >> "$base/proc/zoneinfo"
+
 # KSM
 mkdir -p "$base/sys/kernel/mm/ksm"
 echo "1" > "$base/sys/kernel/mm/ksm/run"
@@ -180,6 +186,7 @@ echo "1048576"                 > "$base/proc/sys/fs/nr_open"
 echo "0"                       > "$base/proc/sys/fs/suid_dumpable"
 echo "65536"                   > "$base/proc/sys/fs/aio-max-nr"
 echo "0"                       > "$base/proc/sys/fs/aio-nr"
+echo "1: POSIX  ADVISORY  READ  1234 08:01:524288 0 EOF" > "$base/proc/locks"
 
 # ===== tmpfs.rs (RT-08) =====
 mkdir -p "$base/dev/shm" "$base/tmp" "$base/run/user" "$base/run/lock"
@@ -187,7 +194,7 @@ touch "$base/dev/shm/.placeholder" "$base/tmp/.placeholder" \
       "$base/run/user/.placeholder" "$base/run/lock/.placeholder"
 
 # ===== mount.rs (RT-09) =====
-mkdir -p "$base/proc/1"
+mkdir -p "$base/proc/1" "$base/proc/self"
 cat > "$base/proc/mounts" <<'EOF'
 rootfs / rootfs rw 0 0
 /dev/sda1 / ext4 rw,relatime 0 0
@@ -201,6 +208,9 @@ echo "nodev  sysfs"           > "$base/proc/filesystems"
 echo "ext4"                    >> "$base/proc/filesystems"
 echo "/dev/sda1 / ext4 rw,relatime 0 0" > "$base/proc/1/mounts"
 echo "device /dev/sda1 mounted on / with fstype ext4" > "$base/proc/1/mountstats"
+echo "22 1 8:1 / / rw,relatime - ext4 /dev/sda1 rw" > "$base/proc/self/mountinfo"
+echo "/dev/sda1 / ext4 rw,relatime 0 0" > "$base/proc/self/mounts"
+echo "device /dev/sda1 mounted on / with fstype ext4" > "$base/proc/self/mountstats"
 mkdir -p "$base/sys/fs/ext4"
 echo "has_journal dir_index extent flex_bg sparse_super large_file huge_file uninit_bg dir_nlink extra_isize" > "$base/sys/fs/ext4/features"
 
@@ -378,6 +388,7 @@ B: LED=7
 EOF
 mkdir -p "$base/sys/kernel/debug"
 touch "$base/sys/kernel/debug/.placeholder"
+touch "$base/sys/kernel/debug/.probe"
 
 mkdir -p "$base/sys/devices/pci0000:00/0000:00:1f.2/ata1/host0/target0:0:0/0:0:0:0/block/sda"
 echo "DRIVER=sd" > "$base/sys/devices/pci0000:00/0000:00:1f.2/ata1/host0/target0:0:0/0:0:0:0/block/sda/uevent"
@@ -439,6 +450,8 @@ echo "Haswell" > "$base/sys/devices/system/edac/mc/mc0/mc_name"
 
 # ===== time.rs (RT-19) =====
 mkdir -p "$base/proc/driver"  "$base/var/spool/cron"
+echo "Timer List Version: v0.9" > "$base/proc/timer_list"
+echo "  clock=0: .index: 0" >> "$base/proc/timer_list"
 echo "rtc_time: 12:00:00"    > "$base/proc/driver/rtc"
 echo "rtc_date: 2026-01-01"  >> "$base/proc/driver/rtc"
 echo "TZif0"                  > "$base/etc/localtime"
@@ -465,5 +478,7 @@ echo "0" > "$base/proc/sys/kernel/dmesg_restrict"
 echo "nameserver 8.8.8.8"    > "$base/etc/resolv.conf"
 echo "127.0.0.1 localhost"   > "$base/etc/hosts"
 touch "$base/etc/ld.so.cache" "$base/etc/ld.so.conf"
+echo "slabinfo - version: 2.1" > "$base/proc/slabinfo"
+echo "dentry 100 100 192 50 50" >> "$base/proc/slabinfo"
 
 echo "fixtures/normal: all 21 collector probe paths created"

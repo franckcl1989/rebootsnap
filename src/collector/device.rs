@@ -48,7 +48,7 @@ fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
 }
 
 fn walk_devices(dir: &Path, depth: u32, max_depth: u32, results: &mut Vec<SysfsDevice>) {
-    if depth > max_depth || results.len() >= 100 {
+    if depth >= max_depth || results.len() >= 100 {
         return;
     }
     let entries = match std::fs::read_dir(dir) {
@@ -234,5 +234,26 @@ mod tests {
             _ => {}
         }
         assert!(outcome.file_size > 0, "no output produced");
+    }
+
+    #[tokio::test]
+    async fn test_collect_content() {
+        let ctx = setup_test("normal");
+        let probe = Device.probe(&ctx.roots).await;
+        if !probe.available {
+            return;
+        }
+        let outcome = Device.collect(&ctx.output, &probe).await;
+        assert!(outcome.file_size > 0);
+
+        let output_dir = ctx.output.root();
+        let entries: Vec<_> = std::fs::read_dir(output_dir).expect("read_dir")
+            .filter_map(|e| e.ok()).collect();
+        assert!(!entries.is_empty(), "should have output files");
+
+        let content = std::fs::read_to_string(entries[0].path()).expect("read output");
+        let json: serde_json::Value = serde_json::from_str(&content).expect("valid JSON");
+        assert_eq!(json["collection"], "RT-17");
+        assert!(json["devices"].is_string(), "devices should be present");
     }
 }

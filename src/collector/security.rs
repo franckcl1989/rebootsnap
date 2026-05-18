@@ -219,7 +219,7 @@ mod tests {
         let ctx = setup_test("normal");
         let probe = Security.probe(&ctx.roots).await;
         if !probe.available {
-            println!("Security probe unavailable in mock (expected without D-Bus/netlink)");
+            eprintln!("Security probe unavailable in mock (expected without D-Bus/netlink)");
             return;
         }
         let outcome = Security.collect(&ctx.output, &probe).await;

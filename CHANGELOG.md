@@ -4,6 +4,44 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-18 - 发布前全面审计修复：19 项整改，35 tests 全通过
+
+- **类型**：修复 / 工程化
+- **范围**：`Cargo.toml`、`src/main.rs`、`src/output.rs`、`src/error.rs`、`src/collector/*`、`tests/`、`docs/decisions/0004-*`、`.gitignore`、`CHANGELOG.md`
+- **提交信息**：`fix(project): comprehensive pre-release audit fixes`
+
+### 变更内容
+
+- Cargo.toml：新增 `license = "MIT OR Apache-2.0"` + LICENSE 文件
+- .gitignore：新增 `.DS_Store`、`.env*`、`.vscode/` 等模式，取消注释 `.idea/`
+- `src/error.rs`：移除未使用的 `CollectError` enum 和 `ItemCountLimit` 变体
+- `src/output.rs`：移除死代码 `TextWriter` struct/impl（72 行）、`text_writer()` 方法
+- `src/main.rs`：Summary 新增 swap_total_kb/swap_free_kb/procs_running/procs_blocked/degraded_items；ManifestProbe hidepid 从 `/proc/mounts` 读取，capabilities 从 `/proc/self/status` CapBnd 读取
+- `src/collector/device.rs`：修复递归深度 off-by-one（`>`→`>=`，现严格限为 3 层）
+- `tests/fixtures/setup.sh`：补全 12 个缺失 fixture 文件（boot/cache/device/fd/memory/mount/time）
+- `tests/fixtures/`：新增 constrained + denied 两个场景脚本和 fixture 目录
+- `tests/integration.rs`：新增 2 个测试（constrained/denied 场景）
+- 8 个 collector：新增 `test_collect_content` 单元测试（验证 collection ID + 关键字段）
+- 7 个 collector：`println!`→`eprintln!` 统一测试输出
+- ADR 0004：移除未实现的 `journal-tail.txt` 引用，更新 `files` 字段说明
+- CHANGELOG：修复格式（缺少空格）
+
+### 设计影响
+
+- 审计发现的 18 项问题全部修复（1 项 `top_consumers` cutoff 因需跨 collector 聚合，标注为 0.2.0）
+- 测试从 25 增至 35（29 unit + 6 integration），覆盖正常/降级/异常/受限/拒绝 5 个场景
+- 输出文件权限 0600，目录 0700
+
+### 验证
+
+- `cargo build --release` 零 warning，`cargo clippy` 零 warning
+- `cargo test --workspace` 35/35 通过
+- `cargo build --release --target x86_64-unknown-linux-musl` static-pie 3.6MB
+- `scripts/verify.sh` exit 0
+- `cargo run --release -- /tmp` 输出 23 文件 tar.gz，权限 0600
+
+---
+
 ## 2026-05-18 - 0.1.0 发布准备：CI 构建测试、README 使用说明、musl 静态验证
 
 - **类型**：实现 / 工程化
@@ -50,7 +88,7 @@
 - 所有输出文件权限为 0600（仅 owner 可读写），输出目录为 0700
 - 单元测试与集成测试双重覆盖：21 单元 + 4 集成 = 25 tests
 - XFRM SA/Policy 和 nftables 完整规则 dump 标记为技术限制，0.2.0 解决
--项目具备 0.1.0 发布条件
+- 项目具备 0.1.0 发布条件
 
 ### 验证
 

@@ -3,6 +3,7 @@ name = "rebootsnap"
 version = "0.1.0"
 edition = "2024"
 description = "pre-reboot Linux runtime state collector"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "fs", "time", "macros"] }

@@ -504,7 +504,7 @@ mod tests {
         let ctx = setup_test("normal");
         let probe = Systemd.probe(&ctx.roots).await;
         if !probe.available {
-            println!("Systemd probe unavailable in mock (expected without D-Bus/netlink)");
+            eprintln!("Systemd probe unavailable in mock (expected without D-Bus/netlink)");
             return;
         }
         let outcome = Systemd.collect(&ctx.output, &probe).await;

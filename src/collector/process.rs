@@ -271,7 +271,7 @@ mod tests {
         let ctx = setup_test("normal");
         let probe = Process.probe(&ctx.roots).await;
         if !probe.available {
-            println!("Process probe unavailable in mock (expected without D-Bus/netlink)");
+            eprintln!("Process probe unavailable in mock (expected without D-Bus/netlink)");
             return;
         }
         let outcome = Process.collect(&ctx.output, &probe).await;

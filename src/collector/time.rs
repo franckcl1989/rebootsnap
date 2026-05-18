@@ -182,7 +182,7 @@ mod tests {
         let ctx = setup_test("normal");
         let probe = Time.probe(&ctx.roots).await;
         if !probe.available {
-            println!("Time probe unavailable in mock (expected without D-Bus/netlink)");
+            eprintln!("Time probe unavailable in mock (expected without D-Bus/netlink)");
             return;
         }
         let outcome = Time.collect(&ctx.output, &probe).await;

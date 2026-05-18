@@ -77,11 +77,21 @@ struct Summary {
     mem_total_kb: Option<i64>,
     mem_available_kb: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    swap_total_kb: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    swap_free_kb: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     load1: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     load5: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     load15: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    procs_running: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    procs_blocked: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    degraded_items: Option<u64>,
 }
 
 fn outcome_status(status: &CollectionStatus) -> &'static str {
@@ -102,6 +112,55 @@ fn loadavg() -> (Option<f64>, Option<f64>, Option<f64>) {
         parts.get(1).and_then(|s| s.parse().ok()),
         parts.get(2).and_then(|s| s.parse().ok()),
     )
+}
+
+fn meminfo_field(key: &str) -> Option<i64> {
+    let content = std_fs::read_to_string("/proc/meminfo").ok()?;
+    for line in content.lines() {
+        if line.starts_with(key) {
+            return line.split_whitespace().nth(1).and_then(|s| s.parse().ok());
+        }
+    }
+    None
+}
+
+fn stat_field(key: &str) -> Option<u64> {
+    let content = std_fs::read_to_string("/proc/stat").ok()?;
+    for line in content.lines() {
+        if line.starts_with(key) {
+            return line.split_whitespace().nth(1).and_then(|s| s.parse().ok());
+        }
+    }
+    None
+}
+
+fn detect_hidepid() -> String {
+    let content = std_fs::read_to_string("/proc/mounts").unwrap_or_default();
+    for line in content.lines() {
+        if line.contains(" proc ") || line.contains("\tproc\t") {
+            for opt in line.split(',') {
+                let opt = opt.trim();
+                if opt.starts_with("hidepid=") {
+                    return opt.strip_prefix("hidepid=").unwrap_or("unknown").to_string();
+                }
+            }
+        }
+    }
+    "0".to_string()
+}
+
+fn detect_capabilities() -> Vec<String> {
+    let content = std_fs::read_to_string("/proc/self/status").unwrap_or_default();
+    for line in content.lines() {
+        if line.starts_with("CapBnd:") {
+            return line.strip_prefix("CapBnd:").unwrap_or("").trim().to_string()
+                .split(',')
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .collect();
+        }
+    }
+    Vec::new()
 }
 
 fn create_tar_gz(
@@ -283,6 +342,8 @@ async fn main() {
     let boot_id = boot_outcome.and_then(|o| o.boot_id.clone()).unwrap_or_default();
     let uptime = boot_outcome.and_then(|o| o.uptime_seconds).unwrap_or(0);
 
+    let degraded_items = manifest_items.iter().filter(|i| i.status == "degraded").count() as u64;
+
     let summary = Summary {
         collection: "summary".into(),
         hostname: hostname.clone(),
@@ -293,9 +354,14 @@ async fn main() {
             .map(|_| true),
         mem_total_kb: mem_outcome.and_then(|o| o.mem_total_kb),
         mem_available_kb: mem_outcome.and_then(|o| o.mem_available_kb),
+        swap_total_kb: meminfo_field("SwapTotal:"),
+        swap_free_kb: meminfo_field("SwapFree:"),
         load1: loadavg().0,
         load5: loadavg().1,
         load15: loadavg().2,
+        procs_running: stat_field("procs_running"),
+        procs_blocked: stat_field("procs_blocked"),
+        degraded_items: Some(degraded_items),
     };
 
     let summary_bytes = serde_json::to_vec_pretty(&summary).unwrap_or_default();
@@ -347,8 +413,8 @@ async fn main() {
                     }
                 })
                 .unwrap_or_else(|| "unavailable".into()),
-            hidepid: String::new(),
-            capabilities: Vec::new(),
+            hidepid: detect_hidepid(),
+            capabilities: detect_capabilities(),
         },
         items: manifest_items,
         global_duration_ms: global_duration.as_millis() as u64,

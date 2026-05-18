@@ -218,4 +218,25 @@ mod tests {
         }
         assert!(outcome.file_size > 0, "no output produced");
     }
+
+    #[tokio::test]
+    async fn test_collect_content() {
+        let ctx = setup_test("normal");
+        let probe = Cpu.probe(&ctx.roots).await;
+        if !probe.available {
+            return;
+        }
+        let outcome = Cpu.collect(&ctx.output, &probe).await;
+        assert!(outcome.file_size > 0);
+
+        let output_dir = ctx.output.root();
+        let entries: Vec<_> = std::fs::read_dir(output_dir).expect("read_dir")
+            .filter_map(|e| e.ok()).collect();
+        assert!(!entries.is_empty(), "should have output files");
+
+        let content = std::fs::read_to_string(entries[0].path()).expect("read output");
+        let json: serde_json::Value = serde_json::from_str(&content).expect("valid JSON");
+        assert_eq!(json["collection"], "RT-05");
+        assert!(json["stat"].is_string(), "stat should be present");
+    }
 }

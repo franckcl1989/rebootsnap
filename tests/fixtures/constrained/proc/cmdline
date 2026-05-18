@@ -1,0 +1,1 @@
+BOOT_IMAGE=/vmlinuz-mock root=/dev/sda1

@@ -379,7 +379,7 @@ mod tests {
         let ctx = setup_test("normal");
         let probe = Session.probe(&ctx.roots).await;
         if !probe.available {
-            println!("Session probe unavailable in mock (expected without D-Bus/netlink)");
+            eprintln!("Session probe unavailable in mock (expected without D-Bus/netlink)");
             return;
         }
         let outcome = Session.collect(&ctx.output, &probe).await;

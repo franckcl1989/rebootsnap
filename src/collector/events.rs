@@ -225,7 +225,7 @@ mod tests {
         let ctx = setup_test("normal");
         let probe = Events.probe(&ctx.roots).await;
         if !probe.available {
-            println!("Events probe unavailable in mock (expected without D-Bus/netlink)");
+            eprintln!("Events probe unavailable in mock (expected without D-Bus/netlink)");
             return;
         }
         let outcome = Events.collect(&ctx.output, &probe).await;

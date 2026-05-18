@@ -183,3 +183,34 @@ async fn test_global_timeout_graceful_exit() {
         "should finish well under 25s, took {elapsed:?}"
     );
 }
+
+#[tokio::test]
+async fn test_constrained_scenario_degrades_gracefully() {
+    let roots = fixture_roots("constrained");
+    let results = run_collectors(&roots).await;
+
+    for (_id, _has_output, status) in &results {
+        assert_ne!(status, "timed_out", "collector timed out in constrained scenario");
+    }
+
+    let failed_count = results.iter().filter(|(_, _, s)| s == "failed").count();
+    assert!(failed_count <= 3, "too many failures in constrained scenario: {failed_count}");
+}
+
+#[tokio::test]
+async fn test_denied_scenario_handles_permission_errors() {
+    let roots = fixture_roots("denied");
+    let results = run_collectors(&roots).await;
+
+    let events_status = results.iter().find(|(id, _, _)| id == "RT-20").map(|(_, _, s)| s.clone());
+    assert!(events_status.is_some(), "RT-20 missing from results");
+    let es = events_status.unwrap();
+    assert!(es == "degraded" || es == "failed", "RT-20 should be degraded/failed when kmsg unreadable, got {es}");
+
+    let systemd_status = results.iter().find(|(id, _, _)| id == "RT-03").map(|(_, _, s)| s.clone());
+    assert!(systemd_status.is_some_and(|s| s != "ok"), "RT-03 should not be ok without D-Bus");
+
+    for (_id, _has_output, status) in &results {
+        assert_ne!(status, "timed_out", "collector timed out");
+    }
+}

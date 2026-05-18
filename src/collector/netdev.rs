@@ -328,7 +328,7 @@ mod tests {
         let ctx = setup_test("normal");
         let probe = Netdev.probe(&ctx.roots).await;
         if !probe.available {
-            println!("Netdev probe unavailable in mock (expected without D-Bus/netlink)");
+            eprintln!("Netdev probe unavailable in mock (expected without D-Bus/netlink)");
             return;
         }
         let outcome = Netdev.collect(&ctx.output, &probe).await;

@@ -57,17 +57,6 @@ impl OutputDir {
         })
     }
 
-    #[allow(dead_code)]
-    pub fn text_writer(&self, filename: &str) -> Result<TextWriter, OutputError> {
-        let tf = NamedTempFile::new_in(&self.root).map_err(OutputError::Io)?;
-        Ok(TextWriter {
-            tf,
-            byte_count: 0,
-            truncated: false,
-            final_path: self.root.join(filename),
-        })
-    }
-
     pub fn cleanup_tmp(&self) {
         match std::fs::read_dir(&self.root) {
             Ok(entries) => {
@@ -81,7 +70,7 @@ impl OutputDir {
                         && let Err(e) = std::fs::remove_file(&path)
                     {
                         tracing::warn!("cannot remove temp file {}: {}", path.display(), e);
-                    }
+}
                 }
             }
             Err(e) => {
@@ -182,7 +171,6 @@ impl JsonlWriter {
         self.truncated
     }
 
-    #[allow(dead_code)]
     pub fn byte_count(&self) -> u64 {
         self.byte_count
     }
@@ -202,57 +190,5 @@ impl JsonlWriter {
             }
         }
         (self.byte_count, self.item_count)
-    }
-}
-
-#[allow(dead_code)]
-pub struct TextWriter {
-    tf: NamedTempFile,
-    byte_count: u64,
-    truncated: bool,
-    final_path: PathBuf,
-}
-
-#[allow(dead_code)]
-impl TextWriter {
-    pub async fn write(&mut self, data: &[u8]) -> Result<(), OutputError> {
-        if self.truncated {
-            return Ok(());
-        }
-        let data_len = data.len() as u64;
-
-        if self.byte_count + data_len > SIZE_LIMIT {
-            let remaining = (SIZE_LIMIT - self.byte_count) as usize;
-            if remaining > 0 {
-                self.tf
-                    .write_all(&data[..remaining.min(data.len())])
-                    .map_err(OutputError::Io)?;
-                self.byte_count = SIZE_LIMIT;
-            }
-            self.truncated = true;
-            return Ok(());
-        }
-
-        self.tf.write_all(data).map_err(OutputError::Io)?;
-        self.byte_count += data_len;
-        Ok(())
-    }
-
-    pub fn is_truncated(&self) -> bool {
-        self.truncated
-    }
-
-    pub fn byte_count(&self) -> u64 {
-        self.byte_count
-    }
-
-    pub async fn finish(self) -> Result<u64, OutputError> {
-        if self.byte_count > 0 {
-            self.tf
-                .persist(&self.final_path)
-                .map_err(|e| OutputError::Io(e.error))?;
-            std::fs::set_permissions(&self.final_path, std::fs::Permissions::from_mode(0o600)).ok();
-        }
-        Ok(self.byte_count)
     }
 }
