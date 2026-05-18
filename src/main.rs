@@ -153,8 +153,8 @@ fn detect_capabilities() -> Vec<String> {
     let content = std_fs::read_to_string("/proc/self/status").unwrap_or_default();
     for line in content.lines() {
         if line.starts_with("CapBnd:") {
-            return line.strip_prefix("CapBnd:").unwrap_or("").trim().to_string()
-                .split(',')
+              return line.strip_prefix("CapBnd:").unwrap_or("").trim()
+                  .split(',')
                 .filter(|s| !s.is_empty())
                 .map(|s| s.to_string())
                 .collect();

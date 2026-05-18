@@ -468,6 +468,8 @@ echo "2026-01-01" > "$base/sys/class/rtc/rtc0/date"
 # ===== events.rs (RT-20) =====
 mkdir -p "$base/dev"
 echo "<6>[  100.000000] mock dmesg entry" > "$base/dev/kmsg"
+mkdir -p "$base/run/log/journal/abc123def456"
+touch "$base/run/log/journal/abc123def456/system@mock.journal"
 echo "1" > "$base/proc/sys/kernel/printk_ratelimit"
 echo "5" > "$base/proc/sys/kernel/printk_ratelimit_burst"
 echo "0" > "$base/proc/sys/kernel/printk_dropped"

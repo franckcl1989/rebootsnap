@@ -4,6 +4,27 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-18 - 最终打磨：clippy 修复 + events fixture 补全
+
+- **类型**：修复
+- **范围**：`src/main.rs`、`tests/fixtures/setup.sh`
+- **提交信息**：`fix(project): final pre-release polish - clippy fix and events fixture`
+
+### 变更内容
+
+- `main.rs`：修复 `clippy::unnecessary_to_owned`（`to_string().split()` → `split()`）
+- `tests/fixtures/setup.sh`：新增 `/run/log/journal/` mock 目录供 events 查询 volatile journal
+
+### 设计影响
+
+- 不改变现有设计约束
+
+### 验证
+
+- 全量通过：build 零 warning、clippy 零 warning、35/35 tests pass、verify.sh exit 0
+
+---
+
 ## 2026-05-18 - 发布前全面审计修复：19 项整改，35 tests 全通过
 
 - **类型**：修复 / 工程化
