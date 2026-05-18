@@ -48,6 +48,8 @@ struct ProcessRecord {
     cgroup: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     loginuid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exe: Option<String>,
 }
 
 impl Process {
@@ -165,46 +167,26 @@ impl Process {
                 probe.roots.resolve(&format!("/proc/{}/loginuid", proc.pid)),
             )
             .ok();
-            let ns_mnt = std::fs::read_link(
-                probe.roots.resolve(&format!("/proc/{}/ns/mnt", proc.pid)),
+            let exe = std::fs::read_link(
+                probe.roots.resolve(&format!("/proc/{}/exe", proc.pid)),
             )
             .ok()
             .map(|p| p.to_string_lossy().to_string());
-            let ns_net = std::fs::read_link(
-                probe.roots.resolve(&format!("/proc/{}/ns/net", proc.pid)),
-            )
-            .ok()
-            .map(|p| p.to_string_lossy().to_string());
-            let ns_pid = std::fs::read_link(
-                probe.roots.resolve(&format!("/proc/{}/ns/pid", proc.pid)),
-            )
-            .ok()
-            .map(|p| p.to_string_lossy().to_string());
-            let ns_ipc = std::fs::read_link(
-                probe.roots.resolve(&format!("/proc/{}/ns/ipc", proc.pid)),
-            )
-            .ok()
-            .map(|p| p.to_string_lossy().to_string());
-            let ns_uts = std::fs::read_link(
-                probe.roots.resolve(&format!("/proc/{}/ns/uts", proc.pid)),
-            )
-            .ok()
-            .map(|p| p.to_string_lossy().to_string());
-            let ns_user = std::fs::read_link(
-                probe.roots.resolve(&format!("/proc/{}/ns/user", proc.pid)),
-            )
-            .ok()
-            .map(|p| p.to_string_lossy().to_string());
-            let ns_cgroup = std::fs::read_link(
-                probe.roots.resolve(&format!("/proc/{}/ns/cgroup", proc.pid)),
-            )
-            .ok()
-            .map(|p| p.to_string_lossy().to_string());
-            let ns_time = std::fs::read_link(
-                probe.roots.resolve(&format!("/proc/{}/ns/time", proc.pid)),
-            )
-            .ok()
-            .map(|p| p.to_string_lossy().to_string());
+
+            fn read_ns(roots: &FsRoots, pid: i32, ns: &str) -> Option<String> {
+                std::fs::read_to_string(
+                    roots.resolve(&format!("/proc/{}/ns/{}", pid, ns)),
+                )
+                .ok()
+            }
+            let ns_mnt = read_ns(&probe.roots, proc.pid, "mnt");
+            let ns_net = read_ns(&probe.roots, proc.pid, "net");
+            let ns_pid = read_ns(&probe.roots, proc.pid, "pid");
+            let ns_ipc = read_ns(&probe.roots, proc.pid, "ipc");
+            let ns_uts = read_ns(&probe.roots, proc.pid, "uts");
+            let ns_user = read_ns(&probe.roots, proc.pid, "user");
+            let ns_cgroup = read_ns(&probe.roots, proc.pid, "cgroup");
+            let ns_time = read_ns(&probe.roots, proc.pid, "time");
 
             let record = ProcessRecord {
                 collection: "RT-04",
@@ -230,6 +212,7 @@ impl Process {
                 ns_time,
                 cgroup,
                 loginuid,
+                exe,
             };
 
             if let Err(e) = writer.write_line(&record).await {

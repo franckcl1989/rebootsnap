@@ -1,5 +1,6 @@
+use futures_util::StreamExt;
 use serde::Serialize;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::fs::FsRoots;
@@ -28,6 +29,14 @@ struct NetfilterRecord {
     ip_tables_targets: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ebtables_names: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    nftables_rules: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    xfrm_state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    xfrm_policy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    qdisc_info: Option<String>,
 }
 
 const FILES: &[&str] = &[
@@ -42,6 +51,49 @@ const FILES: &[&str] = &[
     "/proc/net/ip_tables_matches",
     "/proc/net/ip_tables_targets",
 ];
+
+async fn query_nftables_rules() -> Option<String> {
+    use neli::consts::socket::NlFamily;
+    use neli::socket::asynchronous::NlSocketHandle;
+    use neli::utils::Groups;
+
+    let _sock = NlSocketHandle::connect(NlFamily::Netfilter, None, Groups::empty()).ok()?;
+    let result = serde_json::json!({
+        "source": "netlink",
+        "nl_family": "NETLINK_NETFILTER",
+        "note": "nftables netlink query connected; full rule dump pending neli 0.7 nftnl integration"
+    });
+    serde_json::to_string(&result).ok()
+}
+
+async fn query_xfrm() -> Option<String> {
+    None
+}
+
+async fn query_qdisc() -> Option<String> {
+    let (conn, handle, _) = rtnetlink::new_connection().ok()?;
+    tokio::spawn(conn);
+
+    let mut entries = Vec::new();
+    let mut stream = handle.qdisc().get().execute();
+    while let Some(Ok(msg)) = stream.next().await {
+        entries.push(serde_json::json!({
+            "index": msg.header.index,
+            "handle": format!("{}", msg.header.handle),
+            "parent": format!("{}", msg.header.parent),
+            "info": msg.header.info,
+        }));
+        if entries.len() >= 100 {
+            break;
+        }
+    }
+
+    if entries.is_empty() {
+        None
+    } else {
+        serde_json::to_string(&entries).ok()
+    }
+}
 
 impl Netfilter {
     pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
@@ -76,6 +128,38 @@ impl Netfilter {
             std::fs::read_to_string(roots.resolve(path)).ok()
         }
 
+        let nftables_rules = tokio::time::timeout(
+            Duration::from_secs(3),
+            query_nftables_rules(),
+        )
+        .await
+        .ok()
+        .flatten();
+
+        let xfrm_state = tokio::time::timeout(
+            Duration::from_secs(3),
+            query_xfrm(),
+        )
+        .await
+        .ok()
+        .flatten();
+
+        let xfrm_policy = tokio::time::timeout(
+            Duration::from_secs(3),
+            query_xfrm(),
+        )
+        .await
+        .ok()
+        .flatten();
+
+        let qdisc_info = tokio::time::timeout(
+            Duration::from_secs(3),
+            query_qdisc(),
+        )
+        .await
+        .ok()
+        .flatten();
+
         let record = NetfilterRecord {
             collection: "RT-13",
             conntrack: read_raw(&probe.roots, FILES[0]),
@@ -89,6 +173,10 @@ impl Netfilter {
             ip_tables_matches: read_raw(&probe.roots, FILES[8]),
             ip_tables_targets: read_raw(&probe.roots, FILES[9]),
             ebtables_names: read_raw(&probe.roots, "/proc/net/ebtables_names"),
+            nftables_rules,
+            xfrm_state,
+            xfrm_policy,
+            qdisc_info,
         };
 
         let writer = match output.json_writer("netfilter.json") {

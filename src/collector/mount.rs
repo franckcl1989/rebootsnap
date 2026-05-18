@@ -15,6 +15,12 @@ struct MountRecord {
     mounts: Option<String>,
     mountstats: Option<String>,
     filesystems: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ext4_features: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    suid_dumpable: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fs_debug_types: Option<String>,
 }
 
 const FILES: &[&str] = &[
@@ -22,6 +28,8 @@ const FILES: &[&str] = &[
     "/proc/self/mounts",
     "/proc/self/mountstats",
     "/proc/filesystems",
+    "/sys/fs/ext4/features",
+    "/proc/sys/fs/suid_dumpable",
 ];
 
 impl Mount {
@@ -63,6 +71,9 @@ impl Mount {
             mounts: read_raw(&probe.roots, FILES[1]),
             mountstats: read_raw(&probe.roots, FILES[2]),
             filesystems: read_raw(&probe.roots, FILES[3]),
+            ext4_features: read_raw(&probe.roots, FILES[4]),
+            suid_dumpable: read_raw(&probe.roots, FILES[5]),
+            fs_debug_types: enumerate_fs_debug(&probe.roots),
         };
 
         let writer = match output.json_writer("mounts.json") {
@@ -125,5 +136,20 @@ impl Mount {
             boot_id: None,
             uptime_seconds: None,
         }
+    }
+}
+
+fn enumerate_fs_debug(roots: &FsRoots) -> Option<String> {
+    let dir = roots.resolve("/sys/fs");
+    let entries = std::fs::read_dir(&dir).ok()?;
+    let fs_types: Vec<String> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+    if fs_types.is_empty() {
+        None
+    } else {
+        serde_json::to_string(&fs_types).ok()
     }
 }

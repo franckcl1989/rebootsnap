@@ -1,5 +1,8 @@
+use futures_util::StreamExt;
+use netlink_packet_route::link::{LinkAttribute, LinkInfo};
+use rtnetlink::new_connection;
 use serde::Serialize;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::collector::{CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::fs::FsRoots;
@@ -16,6 +19,10 @@ struct NetdevRecord {
     routes_v6: Option<String>,
     arp: Option<String>,
     netstat: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ip_addresses: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tunnel_info: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -45,6 +52,89 @@ const PROBE_FILES: &[&str] = &[
     "/proc/net/arp",
     "/proc/net/netstat",
 ];
+
+async fn query_ip_addresses() -> Option<String> {
+    let (conn, handle, _) = new_connection().ok()?;
+    tokio::spawn(conn);
+
+    let mut entries = Vec::new();
+    let mut stream = handle.address().get().execute();
+    while let Some(Ok(msg)) = stream.next().await {
+        let header = &msg.header;
+        entries.push(serde_json::json!({
+            "ifindex": header.index,
+            "family": u8::from(header.family),
+            "prefix_len": header.prefix_len,
+            "scope": u8::from(header.scope),
+            "flags": header.flags.bits(),
+        }));
+        if entries.len() >= 200 {
+            break;
+        }
+    }
+
+    if entries.is_empty() {
+        None
+    } else {
+        serde_json::to_string(&entries).ok()
+    }
+}
+
+async fn query_tunnel_links() -> Option<String> {
+    let (conn, handle, _) = new_connection().ok()?;
+    tokio::spawn(conn);
+
+    let mut entries = Vec::new();
+    let mut stream = handle.link().get().execute();
+    while let Some(Ok(msg)) = stream.next().await {
+        let name = msg
+            .attributes
+            .iter()
+            .find_map(|attr| {
+                if let LinkAttribute::IfName(n) = attr {
+                    Some(n.clone())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default();
+        let kind: Option<String> = msg.attributes.iter().find_map(|attr| {
+            if let LinkAttribute::LinkInfo(infos) = attr {
+                infos.iter().find_map(|info| {
+                    if let LinkInfo::Kind(k) = info {
+                        Some(k.to_string())
+                    } else {
+                        None
+                    }
+                })
+            } else {
+                None
+            }
+        });
+        if let Some(ref k) = kind {
+            let is_tunnel = matches!(
+                k.as_str(),
+                "sit" | "ipip" | "gre" | "ip6gre" | "ip6tnl" | "vti" | "xfrm" | "gretap" | "ip6gretap" | "vxlan" | "geneve"
+            );
+            if is_tunnel {
+                entries.push(serde_json::json!({
+                    "ifindex": msg.header.index,
+                    "name": name,
+                    "kind": k,
+                }));
+            }
+        }
+        if entries.len() >= 100 {
+            break;
+        }
+    }
+
+    if entries.is_empty() {
+        None
+    } else {
+        serde_json::to_string(&entries).ok()
+    }
+}
 
 impl Netdev {
     pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
@@ -144,6 +234,11 @@ impl Netdev {
 
         let iface_count = interfaces.len() as u64;
 
+        let (ip_addrs, tunnels) = tokio::join!(
+            tokio::time::timeout(Duration::from_secs(3), query_ip_addresses()),
+            tokio::time::timeout(Duration::from_secs(3), query_tunnel_links()),
+        );
+
         let record = NetdevRecord {
             collection: "RT-11",
             interfaces,
@@ -151,6 +246,8 @@ impl Netdev {
             routes_v6: read_raw(&probe.roots, "/proc/net/ipv6_route"),
             arp: read_raw(&probe.roots, "/proc/net/arp"),
             netstat: read_raw(&probe.roots, "/proc/net/netstat"),
+            ip_addresses: ip_addrs.ok().flatten(),
+            tunnel_info: tunnels.ok().flatten(),
         };
 
         let writer = match output.json_writer("netdev.json") {

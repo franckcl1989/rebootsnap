@@ -1051,6 +1051,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "flate2",
+ "futures-util",
  "neli",
  "netlink-packet-route",
  "procfs",

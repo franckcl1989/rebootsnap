@@ -20,6 +20,7 @@ tempfile = "3"
 rtnetlink = { version = "0.21", features = ["tokio_socket"] }
 netlink-packet-route = "0.30"
 neli = { version = "0.7", default-features = false, features = ["async", "netfilter"] }
+futures-util = "0.3"
 
 [profile.release]
 lto = true

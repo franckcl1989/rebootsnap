@@ -16,6 +16,10 @@ struct BlockRecord {
     pressure_io: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     block_device_info: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    aio_max_nr: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    aio_nr: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -40,6 +44,8 @@ const FILES: &[&str] = &[
     "/proc/diskstats",
     "/proc/partitions",
     "/proc/pressure/io",
+    "/proc/sys/fs/aio-max-nr",
+    "/proc/sys/fs/aio-nr",
 ];
 
 impl Block {
@@ -83,6 +89,8 @@ impl Block {
             partitions: read_raw(&probe.roots, FILES[1]),
             pressure_io: read_raw(&probe.roots, FILES[2]),
             block_device_info,
+            aio_max_nr: read_raw(&probe.roots, FILES[3]),
+            aio_nr: read_raw(&probe.roots, FILES[4]),
         };
 
         let writer = match output.json_writer("block.json") {

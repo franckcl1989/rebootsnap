@@ -1,5 +1,6 @@
 use serde::Serialize;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use zbus::zvariant::OwnedObjectPath;
 
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::fs::FsRoots;
@@ -33,6 +34,10 @@ struct SessionRecord {
     wtmp_entries: Option<Vec<UtmpEntry>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     btmp_entries: Option<Vec<UtmpEntry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    logind_sessions: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    logind_seats: Option<String>,
 }
 
 const FILES: &[&str] = &["/var/run/utmp", "/var/log/wtmp", "/var/log/btmp"];
@@ -79,6 +84,160 @@ fn read_utmp_entries(roots: &FsRoots, path: &str) -> Option<Vec<UtmpEntry>> {
     }
 }
 
+type LogindSessionInfo = (String, u32, String, String, OwnedObjectPath);
+type LogindSeatInfo = (String, OwnedObjectPath);
+
+async fn get_logind_property_string(
+    conn: &zbus::Connection,
+    dest: &str,
+    obj_path: &str,
+    iface: &str,
+    name: &str,
+) -> Option<String> {
+    let reply = conn
+        .call_method(
+            Some(dest),
+            obj_path,
+            Some("org.freedesktop.DBus.Properties"),
+            "Get",
+            &(iface, name),
+        )
+        .await
+        .ok()?;
+    let value: zbus::zvariant::OwnedValue = reply.body().deserialize().ok()?;
+    match &*value {
+        zbus::zvariant::Value::Str(s) => Some(s.to_string()),
+        _ => None,
+    }
+}
+
+async fn get_logind_property_bool(
+    conn: &zbus::Connection,
+    dest: &str,
+    obj_path: &str,
+    iface: &str,
+    name: &str,
+) -> Option<bool> {
+    let reply = conn
+        .call_method(
+            Some(dest),
+            obj_path,
+            Some("org.freedesktop.DBus.Properties"),
+            "Get",
+            &(iface, name),
+        )
+        .await
+        .ok()?;
+    let value: zbus::zvariant::OwnedValue = reply.body().deserialize().ok()?;
+    match &*value {
+        zbus::zvariant::Value::Bool(b) => Some(*b),
+        _ => None,
+    }
+}
+
+async fn query_logind_sessions(_roots: &FsRoots) -> Option<String> {
+    let connection = zbus::Connection::system().await.ok()?;
+
+    let reply = connection
+        .call_method(
+            Some("org.freedesktop.login1"),
+            "/org/freedesktop/login1",
+            Some("org.freedesktop.login1.Manager"),
+            "ListSessions",
+            &(),
+        )
+        .await
+        .ok()?;
+    let sessions: Vec<LogindSessionInfo> = reply.body().deserialize().ok()?;
+
+    let dest = "org.freedesktop.login1";
+    let iface = "org.freedesktop.login1.Session";
+    let mut details = Vec::new();
+    for (id, uid, user, seat, obj_path) in sessions {
+        let obj_path_str = obj_path.to_string();
+        let session_type = get_logind_property_string(&connection, dest, &obj_path_str, iface, "Type")
+            .await
+            .unwrap_or_default();
+        let state = get_logind_property_string(&connection, dest, &obj_path_str, iface, "State")
+            .await
+            .unwrap_or_default();
+        let tty = get_logind_property_string(&connection, dest, &obj_path_str, iface, "TTY")
+            .await
+            .unwrap_or_default();
+        let remote = get_logind_property_bool(&connection, dest, &obj_path_str, iface, "Remote")
+            .await
+            .unwrap_or(false);
+        let display = get_logind_property_string(&connection, dest, &obj_path_str, iface, "Display")
+            .await
+            .unwrap_or_default();
+
+        details.push(serde_json::json!({
+            "id": id,
+            "uid": uid,
+            "user": user,
+            "seat": seat,
+            "type": session_type,
+            "state": state,
+            "tty": tty,
+            "remote": remote,
+            "display": display,
+        }));
+        if details.len() >= 50 {
+            break;
+        }
+    }
+
+    if details.is_empty() {
+        None
+    } else {
+        Some(serde_json::to_string(&details).unwrap_or_default())
+    }
+}
+
+async fn query_logind_seats(_roots: &FsRoots) -> Option<String> {
+    let connection = zbus::Connection::system().await.ok()?;
+
+    let reply = connection
+        .call_method(
+            Some("org.freedesktop.login1"),
+            "/org/freedesktop/login1",
+            Some("org.freedesktop.login1.Manager"),
+            "ListSeats",
+            &(),
+        )
+        .await
+        .ok()?;
+    let seats: Vec<LogindSeatInfo> = reply.body().deserialize().ok()?;
+
+    let dest = "org.freedesktop.login1";
+    let iface = "org.freedesktop.login1.Seat";
+    let mut details = Vec::new();
+    for (id, obj_path) in seats {
+        let obj_path_str = obj_path.to_string();
+        let active_session = get_logind_property_string(&connection, dest, &obj_path_str, iface, "ActiveSession")
+            .await
+            .unwrap_or_default();
+        let can_graphical = get_logind_property_bool(&connection, dest, &obj_path_str, iface, "CanGraphical")
+            .await
+            .unwrap_or(false);
+
+        details.push(serde_json::json!({
+            "id": id,
+            "active_session": active_session,
+            "can_graphical": can_graphical,
+        }));
+        if details.len() >= 20 {
+            break;
+        }
+    }
+
+    if details.is_empty() {
+        None
+    } else {
+        Some(serde_json::to_string(&details).unwrap_or_default())
+    }
+}
+
 impl Session {
     pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
         probe_files(roots, FILES, "all session files missing")
@@ -120,6 +279,21 @@ impl Session {
             + wtmp_entries.as_ref().map_or(0, |v| v.len())
             + btmp_entries.as_ref().map_or(0, |v| v.len());
 
+        let logind_sessions = tokio::time::timeout(
+            Duration::from_secs(3),
+            query_logind_sessions(&probe.roots),
+        )
+        .await
+        .ok()
+        .and_then(|r| r);
+        let logind_seats = tokio::time::timeout(
+            Duration::from_secs(3),
+            query_logind_seats(&probe.roots),
+        )
+        .await
+        .ok()
+        .and_then(|r| r);
+
         let record = SessionRecord {
             collection: "RT-15",
             utmp_size: read_size(&probe.roots, FILES[0]),
@@ -128,6 +302,8 @@ impl Session {
             utmp_entries,
             wtmp_entries,
             btmp_entries,
+            logind_sessions,
+            logind_seats,
         };
 
         let writer = match output.json_writer("sessions.json") {

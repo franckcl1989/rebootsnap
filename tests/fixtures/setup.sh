@@ -11,6 +11,7 @@ echo "5.15.0-mock"             > "$base/proc/sys/kernel/osrelease"
 echo "abc-def-123"             > "$base/proc/sys/kernel/random/boot_id"
 echo "12345.67 89012.34"       > "$base/proc/uptime"
 echo "0.10 0.20 0.30 1/100 1234" > "$base/proc/loadavg"
+echo "(none)"                   > "$base/proc/sys/kernel/domainname"
 
 # ===== kernel.rs (RT-02) =====
 echo "Linux"                   > "$base/proc/sys/kernel/ostype"
@@ -32,6 +33,8 @@ echo "0"                       > "$base/proc/sys/kernel/unknown_nmi_panic"
 mkdir -p "$base/sys/kernel"
 echo "0"                       > "$base/sys/kernel/kexec_crash_loaded"
 echo "0"                       > "$base/sys/kernel/kexec_crash_size"
+mkdir -p "$base/sys/kernel/livepatch"
+touch "$base/sys/kernel/livepatch/.placeholder"
 
 # ===== systemd.rs (RT-03) =====
 mkdir -p "$base/run/dbus"
@@ -85,6 +88,10 @@ echo ""                       > "$base/proc/softirqs"
 echo ""                       > "$base/proc/interrupts"
 mkdir -p "$base/proc/pressure"
 echo "some avg10=0.00 avg60=0.01 avg300=0.05 total=1000" > "$base/proc/pressure/cpu"
+echo "0-3"                     > "$base/sys/devices/system/cpu/isolated"
+mkdir -p "$base/sys/devices/system/cpu/smt"
+echo "on"                      > "$base/sys/devices/system/cpu/smt/control"
+echo ""                        > "$base/sys/devices/system/cpu/nohz_full"
 
 # ===== memory.rs (RT-06) =====
 cat > "$base/proc/meminfo" <<'EOF'
@@ -124,6 +131,19 @@ echo "10" > "$base/proc/sys/vm/dirty_background_ratio"
 echo "100" > "$base/proc/sys/vm/vfs_cache_pressure"
 echo "0" > "$base/proc/sys/vm/zone_reclaim_mode"
 
+# KSM
+mkdir -p "$base/sys/kernel/mm/ksm"
+echo "1" > "$base/sys/kernel/mm/ksm/run"
+echo "0" > "$base/sys/kernel/mm/ksm/pages_shared"
+echo "0" > "$base/sys/kernel/mm/ksm/pages_sharing"
+echo "0" > "$base/sys/kernel/mm/ksm/pages_unshared"
+echo "0" > "$base/sys/kernel/mm/ksm/full_scans"
+
+# hugepage
+echo "0" > "$base/proc/sys/vm/nr_hugepages"
+echo "0" > "$base/proc/sys/vm/nr_overcommit_hugepages"
+echo "0" > "$base/proc/sys/vm/hugetlb_shm_group"
+
 # zram
 mkdir -p "$base/sys/block/zram0"
 echo "4194304" > "$base/sys/block/zram0/disksize"
@@ -157,6 +177,9 @@ echo "5678 0 0 0 0 0 0"       > "$base/proc/sys/fs/inode-state"
 echo "100 50 0 0 0 0"          > "$base/proc/sys/fs/dentry-state"
 echo "0"                       > "$base/proc/sys/fs/inode-max"
 echo "1048576"                 > "$base/proc/sys/fs/nr_open"
+echo "0"                       > "$base/proc/sys/fs/suid_dumpable"
+echo "65536"                   > "$base/proc/sys/fs/aio-max-nr"
+echo "0"                       > "$base/proc/sys/fs/aio-nr"
 
 # ===== tmpfs.rs (RT-08) =====
 mkdir -p "$base/dev/shm" "$base/tmp" "$base/run/user" "$base/run/lock"
@@ -178,6 +201,8 @@ echo "nodev  sysfs"           > "$base/proc/filesystems"
 echo "ext4"                    >> "$base/proc/filesystems"
 echo "/dev/sda1 / ext4 rw,relatime 0 0" > "$base/proc/1/mounts"
 echo "device /dev/sda1 mounted on / with fstype ext4" > "$base/proc/1/mountstats"
+mkdir -p "$base/sys/fs/ext4"
+echo "has_journal dir_index extent flex_bg sparse_super large_file huge_file uninit_bg dir_nlink extra_isize" > "$base/sys/fs/ext4/features"
 
 # ===== block.rs (RT-10) =====
 cat > "$base/proc/diskstats" <<'EOF'
@@ -253,7 +278,7 @@ echo "" > "$base/proc/net/ip_tables_targets"
 echo "" > "$base/proc/net/ebtables_names"
 
 # ===== ipc_ns_cg.rs (RT-14) =====
-mkdir -p "$base/proc/sysvipc" "$base/proc/1/ns"
+mkdir -p "$base/proc/sysvipc" "$base/proc/1/ns" "$base/dev/mqueue" "$base/proc/sys/fs/mqueue"
 echo "#subsys_name  hierarchy  num_cgroups  enabled" > "$base/proc/cgroups"
 echo "memory  0  100  1" >> "$base/proc/cgroups"
 echo "cpu  0  50  1" >> "$base/proc/cgroups"
@@ -262,6 +287,10 @@ echo "" > "$base/proc/sysvipc/sem"
 echo "" > "$base/proc/sysvipc/shm"
 echo "ipc:[4026531839]" > "$base/proc/1/ns/ipc"
 echo "0::/system.slice/sshd.service" > "$base/proc/1/cgroup"
+touch "$base/dev/mqueue/my_queue" "$base/dev/mqueue/app_queue"
+echo "256" > "$base/proc/sys/fs/mqueue/queues_max"
+echo "10" > "$base/proc/sys/fs/mqueue/msg_max"
+echo "8192" > "$base/proc/sys/fs/mqueue/msgsize_max"
 
 # cgroup v2 unified hierarchy
 mkdir -p "$base/sys/fs/cgroup/system.slice"
@@ -314,6 +343,10 @@ echo "0" > "$base/proc/sys/net/ipv4/ip_forward"
 echo "0" > "$base/proc/sys/net/ipv6/conf/all/forwarding"
 echo "1" > "$base/proc/sys/net/ipv4/conf/all/rp_filter"
 echo "1" > "$base/proc/sys/net/ipv4/tcp_syncookies"
+echo "0" > "$base/proc/sys/net/ipv4/conf/all/accept_redirects"
+echo "0" > "$base/proc/sys/net/ipv4/conf/all/send_redirects"
+echo "1" > "$base/proc/sys/net/ipv4/conf/all/secure_redirects"
+echo "0" > "$base/proc/sys/net/ipv4/conf/all/log_martians"
 echo "5" > "$base/proc/sys/kernel/printk_ratelimit"
 echo "10" > "$base/proc/sys/kernel/printk_ratelimit_burst"
 echo "hosts: files dns"       > "$base/etc/nsswitch.conf"
@@ -328,6 +361,21 @@ Block devices:
   8 sd
 EOF
 echo "" > "$base/proc/misc"
+echo "" > "$base/proc/interrupts"
+mkdir -p "$base/proc/bus/input"
+cat > "$base/proc/bus/input/devices" <<'EOF'
+I: Bus=0011 Vendor=0001 Product=0001 Version=ab54
+N: Name="AT Translated Set 2 keyboard"
+P: Phys=isa0060/serio0/input0
+S: Sysfs=/devices/platform/i8042/serio0/input/input0
+U: Uniq=
+H: Handlers=sysrq kbd event0
+B: PROP=0
+B: EV=120013
+B: KEY=402000000 3803078f800d001 feffffdfffefffff fffffffffffffffe
+B: MSC=10
+B: LED=7
+EOF
 mkdir -p "$base/sys/kernel/debug"
 touch "$base/sys/kernel/debug/.placeholder"
 
@@ -341,7 +389,7 @@ echo "s2idle [deep]" > "$base/sys/power/mem_sleep"
 echo "Device  S-state  Status  Sysfs node" > "$base/proc/acpi/wakeup"
 echo "LID    S3    *enabled  platform:PNP0C0D:00" >> "$base/proc/acpi/wakeup"
 
-# cpufreq
+# cpufreq + cpuidle
 for cpu in 0 1 2 3; do
     mkdir -p "$base/sys/devices/system/cpu/cpu$cpu/cpufreq" \
              "$base/sys/devices/system/cpu/cpu$cpu/thermal_throttle"
@@ -353,7 +401,21 @@ for cpu in 0 1 2 3; do
     echo "1200000" > "$base/sys/devices/system/cpu/cpu$cpu/cpufreq/cpuinfo_min_freq"
     echo "0" > "$base/sys/devices/system/cpu/cpu$cpu/thermal_throttle/core_throttle_count"
     echo "0" > "$base/sys/devices/system/cpu/cpu$cpu/thermal_throttle/package_throttle_count"
+    mkdir -p "$base/sys/devices/system/cpu/cpu$cpu/cpuidle/state0" \
+             "$base/sys/devices/system/cpu/cpu$cpu/cpuidle/state1"
+    echo "POLL" > "$base/sys/devices/system/cpu/cpu$cpu/cpuidle/state0/name"
+    echo "0" > "$base/sys/devices/system/cpu/cpu$cpu/cpuidle/state0/time"
+    echo "1000" > "$base/sys/devices/system/cpu/cpu$cpu/cpuidle/state0/usage"
+    echo "0" > "$base/sys/devices/system/cpu/cpu$cpu/cpuidle/state0/above"
+    echo "0" > "$base/sys/devices/system/cpu/cpu$cpu/cpuidle/state0/below"
+    echo "C1" > "$base/sys/devices/system/cpu/cpu$cpu/cpuidle/state1/name"
+    echo "5000000" > "$base/sys/devices/system/cpu/cpu$cpu/cpuidle/state1/time"
+    echo "50000" > "$base/sys/devices/system/cpu/cpu$cpu/cpuidle/state1/usage"
+    echo "0" > "$base/sys/devices/system/cpu/cpu$cpu/cpuidle/state1/above"
+    echo "0" > "$base/sys/devices/system/cpu/cpu$cpu/cpuidle/state1/below"
 done
+mkdir -p "$base/sys/devices/system/cpu/cpufreq"
+echo "1" > "$base/sys/devices/system/cpu/cpufreq/boost"
 
 # thermal zones
 mkdir -p "$base/sys/class/thermal/thermal_zone0" \

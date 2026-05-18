@@ -4,6 +4,45 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-17 - G2-G4：netlink、D-Bus、procfs 三层补齐，必采覆盖率 >95%
+
+- **类型**：实现
+- **范围**：`src/collector/netdev.rs`、`netfilter.rs`、`systemd.rs`、`session.rs`、`time.rs`、`events.rs`、`boot.rs`、`kernel.rs`、`cpu.rs`、`memory.rs`、`process.rs`、`tmpfs.rs`、`mount.rs`、`block.rs`、`ipc_ns_cg.rs`、`security.rs`、`device.rs`、`power.rs`、`Cargo.toml`、`docs/decisions/0003-*`
+- **提交信息**：`feat(collector): complete all mandatory items with netlink, D-Bus, and procfs coverage`
+
+### 变更内容
+
+**G2 netlink 层**：
+- `netdev.rs`：rtnetlink 查询 IP 地址 (IPv4/IPv6)、tunnel link 类型
+- `netfilter.rs`：rtnetlink 查询 qdisc (tc) 规则、neli 查询 nftables netlink socket 连接
+- 新增 `futures-util` 直接依赖（StreamExt 支持）
+
+**G3 D-Bus 扩展**：
+- `systemd.rs`：`GetUnit()` 查询 failed/auto-restart unit 详细属性 (ActiveState/SubState/MainPID)
+- `session.rs`：logind `ListSessions()`/`ListSeats()` D-Bus 查询会话/seat 状态
+- `time.rs`：timedated D-Bus 查询 NTP 同步状态和时区
+- `events.rs`：`/run/log/journal/` 目录枚举获取 volatile journal 文件列表
+
+**G4 procfs/sysfs 补漏** (18 个 collector，100+ 新字段)：
+- boot: domainname / kernel: livepatch / cpu: isolated,SMT,nohz / memory: KSM,hugetlb
+- process: exe readlink / tmpfs: total_entries / mount: ext4,suid_dumpable,fs_debug
+- block: aio-max-nr,aio-nr / ipc_ns_cg: POSIX mqueue / security: redirects,martians
+- device: input_devices,interrupts / power: cpuidle,boost
+
+### 设计影响
+
+- 必采三级项覆盖率从 **54%** 提升至 **>95%**
+- 总依赖 16 个（含 futures-util），全部纯 Rust
+- XFRM SA/policy 和 nftables 完整规则 dump 因需要非 NETLINK_ROUTE family，仍暂缓至后续版本的 neli/xfrm netlink 集成
+- ADR 0003 暂缓表仅保留 `nix::sys::syslog`（dmesg 备选路径）
+
+### 验证
+
+- `cargo build --release` 零 warning，`cargo clippy` 零 warning
+- `scripts/verify.sh` exit 0（含 `cargo test` 4/4 通过）
+- `cargo run --release -- /tmp` 生成 23 文件 tar.gz，运行时正确
+
+
 ## 2026-05-17 - G1：引入 netlink 依赖 (rtnetlink + neli)，从暂缓转为生效
 
 - **类型**：实现 / 工程化
@@ -27,7 +66,6 @@
 - `cargo build --release` 零 warning，`cargo clippy` 零 warning
 - `scripts/verify.sh` exit 0（`cargo test` 4/4 通过）
 
----
 
 ## 2026-05-17 - 补齐 0.1.0 必采项覆盖：14 个 collector 扩展至决策文档完整必采
 

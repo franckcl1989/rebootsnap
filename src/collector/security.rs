@@ -51,6 +51,14 @@ struct SecurityRecord {
     printk_ratelimit: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     printk_ratelimit_burst: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    accept_redirects: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    send_redirects: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    secure_redirects: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    log_martians: Option<String>,
 }
 
 const FILES: &[&str] = &[
@@ -71,6 +79,10 @@ const FILES: &[&str] = &[
     "/proc/sys/net/ipv6/conf/all/forwarding",
     "/proc/sys/net/ipv4/conf/all/rp_filter",
     "/proc/sys/net/ipv4/tcp_syncookies",
+    "/proc/sys/net/ipv4/conf/all/accept_redirects",
+    "/proc/sys/net/ipv4/conf/all/send_redirects",
+    "/proc/sys/net/ipv4/conf/all/secure_redirects",
+    "/proc/sys/net/ipv4/conf/all/log_martians",
 ];
 
 impl Security {
@@ -128,6 +140,10 @@ impl Security {
             selinux_enforce: read_raw(&probe.roots, "/sys/fs/selinux/enforce"),
             printk_ratelimit: read_raw(&probe.roots, "/proc/sys/kernel/printk_ratelimit"),
             printk_ratelimit_burst: read_raw(&probe.roots, "/proc/sys/kernel/printk_ratelimit_burst"),
+            accept_redirects: read_raw(&probe.roots, FILES[17]),
+            send_redirects: read_raw(&probe.roots, FILES[18]),
+            secure_redirects: read_raw(&probe.roots, FILES[19]),
+            log_martians: read_raw(&probe.roots, FILES[20]),
         };
 
         let writer = match output.json_writer("security.json") {

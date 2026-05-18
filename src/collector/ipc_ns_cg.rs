@@ -24,6 +24,14 @@ struct IpcNsCgRecord {
     cgroup_tree_v1: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     cgroup_tree_v2: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    posix_mq_queues: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mqueue_queues_max: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mqueue_msg_max: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mqueue_msgsize_max: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -110,6 +118,9 @@ const FILES: &[&str] = &[
     "/proc/sysvipc/msg",
     "/proc/sysvipc/sem",
     "/proc/sysvipc/shm",
+    "/proc/sys/fs/mqueue/queues_max",
+    "/proc/sys/fs/mqueue/msg_max",
+    "/proc/sys/fs/mqueue/msgsize_max",
 ];
 
 fn read_init_ns_ipc(roots: &FsRoots) -> Option<String> {
@@ -120,6 +131,20 @@ fn read_init_ns_ipc(roots: &FsRoots) -> Option<String> {
 
 fn read_init_cgroup(roots: &FsRoots) -> Option<String> {
     std::fs::read_to_string(roots.resolve("/proc/1/cgroup")).ok()
+}
+
+fn query_posix_mq(roots: &FsRoots) -> Option<String> {
+    let dir = roots.resolve("/dev/mqueue");
+    let entries = std::fs::read_dir(&dir).ok()?;
+    let names: Vec<String> = entries
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+    if names.is_empty() {
+        None
+    } else {
+        serde_json::to_string(&names).ok()
+    }
 }
 
 fn read_cgroup_v1(roots: &FsRoots) -> Option<String> {
@@ -337,6 +362,10 @@ impl IpcNsCg {
             init_cgroup: read_init_cgroup(&probe.roots),
             cgroup_tree_v1: read_cgroup_v1(&probe.roots),
             cgroup_tree_v2: read_cgroup_v2(&probe.roots),
+            posix_mq_queues: query_posix_mq(&probe.roots),
+            mqueue_queues_max: read_raw(&probe.roots, FILES[4]),
+            mqueue_msg_max: read_raw(&probe.roots, FILES[5]),
+            mqueue_msgsize_max: read_raw(&probe.roots, FILES[6]),
         };
 
         let writer = match output.json_writer("ipc_ns_cg.json") {

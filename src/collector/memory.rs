@@ -57,6 +57,22 @@ struct MemoryRecord {
     khugepaged_defrag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     numa_stats: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ksm_run: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ksm_pages_shared: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ksm_pages_sharing: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ksm_pages_unshared: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ksm_full_scans: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    nr_hugepages: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    nr_overcommit_hugepages: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hugetlb_shm_group: Option<String>,
 }
 
 const FILES: &[&str] = &[
@@ -75,6 +91,14 @@ const FILES: &[&str] = &[
     "/proc/sys/vm/dirty_background_ratio",
     "/proc/sys/vm/vfs_cache_pressure",
     "/proc/sys/vm/zone_reclaim_mode",
+    "/sys/kernel/mm/ksm/run",
+    "/sys/kernel/mm/ksm/pages_shared",
+    "/sys/kernel/mm/ksm/pages_sharing",
+    "/sys/kernel/mm/ksm/pages_unshared",
+    "/sys/kernel/mm/ksm/full_scans",
+    "/proc/sys/vm/nr_hugepages",
+    "/proc/sys/vm/nr_overcommit_hugepages",
+    "/proc/sys/vm/hugetlb_shm_group",
 ];
 
 fn read_zram_stats(roots: &FsRoots) -> Option<String> {
@@ -238,6 +262,14 @@ impl Memory {
                 "/sys/kernel/mm/transparent_hugepage/khugepaged/defrag",
             ),
             numa_stats: read_numa_stats(&probe.roots),
+            ksm_run: read_raw(&probe.roots, FILES[15]),
+            ksm_pages_shared: read_raw(&probe.roots, FILES[16]),
+            ksm_pages_sharing: read_raw(&probe.roots, FILES[17]),
+            ksm_pages_unshared: read_raw(&probe.roots, FILES[18]),
+            ksm_full_scans: read_raw(&probe.roots, FILES[19]),
+            nr_hugepages: read_raw(&probe.roots, FILES[20]),
+            nr_overcommit_hugepages: read_raw(&probe.roots, FILES[21]),
+            hugetlb_shm_group: read_raw(&probe.roots, FILES[22]),
         };
 
         let writer = match output.json_writer("memory.json") {

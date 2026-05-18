@@ -17,6 +17,10 @@ struct DeviceRecord {
     kernel_debug: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     sysfs_devices: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    input_devices: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    interrupts: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -35,6 +39,8 @@ const FILES: &[&str] = &[
     "/proc/devices",
     "/proc/misc",
     "/sys/kernel/debug",
+    "/proc/bus/input/devices",
+    "/proc/interrupts",
 ];
 
 fn read_raw(roots: &FsRoots, path: &str) -> Option<String> {
@@ -140,6 +146,8 @@ impl Device {
                 None
             },
             sysfs_devices: enumerate_sysfs_devices(&probe.roots),
+            input_devices: read_raw(&probe.roots, FILES[3]),
+            interrupts: read_raw(&probe.roots, FILES[4]),
         };
 
         let writer = match output.json_writer("devices.json") {

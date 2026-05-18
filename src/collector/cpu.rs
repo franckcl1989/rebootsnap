@@ -26,6 +26,9 @@ struct CpuRecord {
     softirqs: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     cpu_topology: Option<Vec<CpuTopologyEntry>>,
+    cpu_isolated: Option<String>,
+    smt_control: Option<String>,
+    nohz_full: Option<String>,
 }
 
 const FILES: &[&str] = &[
@@ -34,6 +37,9 @@ const FILES: &[&str] = &[
     "/proc/pressure/cpu",
     "/proc/interrupts",
     "/proc/softirqs",
+    "/sys/devices/system/cpu/isolated",
+    "/sys/devices/system/cpu/smt/control",
+    "/sys/devices/system/cpu/nohz_full",
 ];
 
 impl Cpu {
@@ -122,6 +128,9 @@ impl Cpu {
             interrupts: read_raw(&probe.roots, FILES[3]),
             softirqs: read_raw(&probe.roots, FILES[4]),
             cpu_topology,
+            cpu_isolated: read_raw(&probe.roots, FILES[5]),
+            smt_control: read_raw(&probe.roots, FILES[6]),
+            nohz_full: read_raw(&probe.roots, FILES[7]),
         };
 
         let writer = match output.json_writer("cpu.json") {

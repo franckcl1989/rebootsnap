@@ -15,6 +15,7 @@ struct TmpfsRecord {
     run_entries: Option<u64>,
     dev_shm_entries: Option<u64>,
     tmp_entries: Option<u64>,
+    tmpfs_total_entries: Option<u64>,
 }
 
 const MOUNTS_FILE: &str = "/proc/mounts";
@@ -92,12 +93,25 @@ impl Tmpfs {
             Some(entries.flatten().count() as u64)
         }
 
+        let run_entries_val = count_dir(&probe.roots, RUNTIME_DIRS[0]);
+        let dev_shm_entries_val = count_dir(&probe.roots, RUNTIME_DIRS[1]);
+        let tmp_entries_val = count_dir(&probe.roots, RUNTIME_DIRS[2]);
+        let total_entries = match (&run_entries_val, &dev_shm_entries_val, &tmp_entries_val) {
+            (None, None, None) => None,
+            _ => Some(
+                run_entries_val.unwrap_or(0)
+                    + dev_shm_entries_val.unwrap_or(0)
+                    + tmp_entries_val.unwrap_or(0),
+            ),
+        };
+
         let record = TmpfsRecord {
             collection: "RT-08",
             mounts: read_raw(&probe.roots, MOUNTS_FILE),
-            run_entries: count_dir(&probe.roots, RUNTIME_DIRS[0]),
-            dev_shm_entries: count_dir(&probe.roots, RUNTIME_DIRS[1]),
-            tmp_entries: count_dir(&probe.roots, RUNTIME_DIRS[2]),
+            run_entries: run_entries_val,
+            dev_shm_entries: dev_shm_entries_val,
+            tmp_entries: tmp_entries_val,
+            tmpfs_total_entries: total_entries,
         };
 
         let writer = match output.json_writer("tmpfs.json") {

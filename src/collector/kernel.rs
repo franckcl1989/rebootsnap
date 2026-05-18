@@ -30,6 +30,7 @@ struct KernelRecord {
     unknown_nmi_panic: Option<String>,
     kexec_crash_loaded: Option<String>,
     kexec_crash_size: Option<String>,
+    livepatch: Option<String>,
 }
 
 const FILES: &[&str] = &[
@@ -52,6 +53,7 @@ const FILES: &[&str] = &[
     "/proc/sys/kernel/unknown_nmi_panic",
     "/sys/kernel/kexec_crash_loaded",
     "/sys/kernel/kexec_crash_size",
+    "/sys/kernel/livepatch",
 ];
 
 impl Kernel {
@@ -108,6 +110,15 @@ impl Kernel {
             unknown_nmi_panic: read_raw(&probe.roots, FILES[16]),
             kexec_crash_loaded: read_raw(&probe.roots, FILES[17]),
             kexec_crash_size: read_raw(&probe.roots, FILES[18]),
+            livepatch: {
+                std::fs::read_dir(probe.roots.resolve(FILES[19]))
+                    .ok()
+                    .map(|dir| {
+                        let count = dir.filter_map(|e| e.ok()).count();
+                        format!("present:{}", count)
+                    })
+                    .or_else(|| Some("absent".to_string()))
+            },
         };
 
         let writer = match output.json_writer("kernel.json") {

@@ -16,6 +16,7 @@ struct BootRecord {
     kernel_version: Option<String>,
     cmdline: Option<String>,
     hostname: Option<String>,
+    domainname: Option<String>,
 }
 
 const FILES: &[&str] = &[
@@ -24,6 +25,7 @@ const FILES: &[&str] = &[
     "/proc/version",
     "/proc/cmdline",
     "/proc/sys/kernel/hostname",
+    "/proc/sys/kernel/domainname",
 ];
 
 impl Boot {
@@ -65,6 +67,7 @@ impl Boot {
         let kernel_version = read_trimmed(&probe.roots, FILES[2]);
         let cmdline = read_trimmed(&probe.roots, FILES[3]);
         let hostname = read_trimmed(&probe.roots, FILES[4]);
+        let domainname = read_trimmed(&probe.roots, FILES[5]);
 
         let record = BootRecord {
             collection: "RT-01",
@@ -73,6 +76,7 @@ impl Boot {
             kernel_version: kernel_version.clone(),
             cmdline,
             hostname: hostname.clone(),
+            domainname,
         };
 
         let writer = match output.json_writer("boot.json") {

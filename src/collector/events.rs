@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::fs;
 use std::time::Instant;
 
 use crate::collector::{CollectionOutcome, CollectionStatus, ProbeOutcome};
@@ -26,6 +27,10 @@ struct DmesgRecord {
     dmesg_restrict: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     dmesg_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    volatile_journal: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    journal_machine_id: Option<String>,
 }
 
 const FILES: &[&str] = &[
@@ -38,6 +43,41 @@ const FILES: &[&str] = &[
 ];
 
 const KMSG_PATH: &str = "/dev/kmsg";
+
+fn query_volatile_journal(roots: &FsRoots) -> Option<(String, String)> {
+    let journal_dir = roots.resolve("/run/log/journal");
+    let entries = fs::read_dir(&journal_dir).ok()?;
+    let machine_id_dir = entries
+        .filter_map(|e| e.ok())
+        .find(|e| e.path().is_dir())?;
+    let machine_id = machine_id_dir.file_name().to_string_lossy().to_string();
+    let mut journal_files = Vec::new();
+    if let Ok(j_entries) = fs::read_dir(machine_id_dir.path()) {
+        for entry in j_entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.extension().is_some_and(|ext| ext == "journal") {
+                let meta = fs::metadata(&path).ok();
+                journal_files.push(serde_json::json!({
+                    "name": entry.file_name().to_string_lossy(),
+                    "size": meta.as_ref().map(|m| m.len()),
+                }));
+            }
+            if journal_files.len() >= 20 {
+                break;
+            }
+        }
+    }
+    let result = serde_json::json!({
+        "machine_id": machine_id,
+        "files": journal_files,
+        "source": "/run/log/journal",
+        "note": "journal file enumeration only; full content requires journalctl or D-Bus GetJournal fd"
+    });
+    Some((
+        serde_json::to_string(&result).ok()?,
+        machine_id,
+    ))
+}
 
 impl Events {
     pub async fn probe(&self, roots: &FsRoots) -> ProbeOutcome {
@@ -88,6 +128,11 @@ impl Events {
         let dmesg_text = read_trimmed(&probe.roots, KMSG_PATH);
         let dmesg_ok = dmesg_text.is_some();
 
+        let (volatile_journal, journal_machine_id) =
+            query_volatile_journal(&probe.roots)
+                .map(|(j, m)| (Some(j), Some(m)))
+                .unwrap_or((None, None));
+
         let record = DmesgRecord {
             collection: "RT-20",
             source: "/dev/kmsg",
@@ -98,6 +143,8 @@ impl Events {
             devkmsg_log: read_trimmed(&probe.roots, FILES[4]),
             dmesg_restrict: read_trimmed(&probe.roots, FILES[5]),
             dmesg_text,
+            volatile_journal,
+            journal_machine_id,
         };
 
         let writer = match output.json_writer("dmesg.json") {

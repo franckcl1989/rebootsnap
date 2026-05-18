@@ -1,5 +1,6 @@
 use serde::Serialize;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use zbus::Connection;
 
 use crate::collector::{probe_files, CollectionOutcome, CollectionStatus, ProbeOutcome};
 use crate::fs::FsRoots;
@@ -20,6 +21,35 @@ struct TimeRecord {
     current_clocksource: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     available_clocksource: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    time_sync: Option<String>,
+}
+
+async fn query_timedated() -> Option<String> {
+    let connection = Connection::system().await.ok()?;
+
+    let timedated = zbus::Proxy::new(
+        &connection,
+        "org.freedesktop.timedate1",
+        "/org/freedesktop/timedate1",
+        "org.freedesktop.timedate1",
+    )
+    .await
+    .ok()?;
+
+    let ntp: bool = timedated.get_property("NTP").await.ok().unwrap_or(false);
+    let sync: bool = timedated.get_property("NTPSynchronized").await.ok().unwrap_or(false);
+    let tz: String = timedated.get_property("Timezone").await.ok().unwrap_or_default();
+    let can_ntp: bool = timedated.get_property("CanNTP").await.ok().unwrap_or(false);
+
+    let result = serde_json::json!({
+        "ntp_enabled": ntp,
+        "ntp_synchronized": sync,
+        "timezone": tz,
+        "can_ntp": can_ntp,
+    });
+
+    Some(serde_json::to_string(&result).unwrap_or_default())
 }
 
 const FILES: &[&str] = &[
@@ -67,6 +97,8 @@ impl Time {
             std::fs::read_to_string(roots.resolve(path)).ok()
         }
 
+        let time_sync: Option<String> = tokio::time::timeout(Duration::from_secs(3), query_timedated()).await.unwrap_or_default();
+
         let record = TimeRecord {
             collection: "RT-19",
             timer_list: read_raw(&probe.roots, FILES[0]),
@@ -74,6 +106,7 @@ impl Time {
             rtc_time: read_raw(&probe.roots, FILES[6]),
             current_clocksource: read_raw(&probe.roots, FILES[7]),
             available_clocksource: read_raw(&probe.roots, FILES[8]),
+            time_sync,
         };
 
         let writer = match output.json_writer("time.json") {
