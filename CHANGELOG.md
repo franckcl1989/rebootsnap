@@ -4,6 +4,26 @@
 
 提交信息和变更记录格式的唯一规范来源见 [变更管理规范](docs/change-management.md)。
 
+## 2026-05-18 - 添加 v0.1.1 musl 静态二进制
+
+- **类型**：工程化
+- **范围**：`dist/`、`CHANGELOG.md`
+- **提交信息**：`chore(dist): add v0.1.1 musl static binary`
+
+### 变更内容
+
+- 在 `dist/` 目录添加 v0.1.1 x86_64-unknown-linux-musl 静态链接二进制 (3.8MiB)。
+
+### 设计影响
+
+- 不改变现有设计约束。预编译二进制供不便自行构建的用户直接下载使用。
+
+### 验证
+
+- 二进制为 static-pie ELF，无动态链接依赖，可在目标平台直接运行。
+
+---
+
 ## 2026-05-18 - Schema 稳定性、JSON-in-string 清理、manifest 语义修正与 summary 增强
 
 - **类型**：实现 / 修复
